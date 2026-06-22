@@ -21,6 +21,11 @@ def load_local_tools(scripts_dir: str) -> list:
                     module = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(module)
                     func = getattr(module, module_name, None)
+                    if not func:
+                        # Try camelCase conversion (e.g. consult_agent -> consultAgent)
+                        parts = module_name.split("_")
+                        camel_name = parts[0] + "".join(p.capitalize() for p in parts[1:])
+                        func = getattr(module, camel_name, None)
                     if func and callable(func):
                         tools.append(func)
             except Exception:
