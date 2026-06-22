@@ -110,11 +110,66 @@ class HostAgent:
             raw_context=context
         )
         
+        # Resolve session ID
+        session_id = (context or {}).get("sessionId")
+        if not session_id:
+            session_id = f"session_{user_id}_{hub_id}"
+            
         with hubscape_adk.context_session(remote_ctx):
+            # Try to restore session trajectory from Firestore
+            conv_id = None
+            db_path = None
+            try:
+                session_doc = remote_ctx.get(scope="user", collection_name="sessions", doc_id=session_id)
+                if session_doc and "trajectory" in session_doc and "conversation_id" in session_doc:
+                    conv_id = session_doc["conversation_id"]
+                    trajectory_bytes = session_doc["trajectory"]
+                    
+                    # Handle if firestore Blob wrapper is returned
+                    if hasattr(trajectory_bytes, "value"):
+                        trajectory_bytes = trajectory_bytes.value
+                        
+                    db_path = f"/tmp/{conv_id}.db"
+                    with open(db_path, "wb") as f:
+                        f.write(trajectory_bytes)
+                        
+                    self.config.conversation_id = conv_id
+                    self.config.save_dir = "/tmp"
+                    print(f"🔄 Resuming GEAP Session: {session_id} (Internal ID: {conv_id})")
+                else:
+                    self.config.save_dir = "/tmp"
+                    self.config.conversation_id = None
+                    print(f"🌱 Starting New GEAP Session: {session_id}")
+            except Exception as restore_err:
+                print(f"⚠️ Non-critical: Failed to restore session trajectory: {restore_err}")
+                self.config.save_dir = "/tmp"
+                self.config.conversation_id = None
+                
             async with Agent(config=self.config) as agent:
                 response = await agent.chat(question)
                 await response.resolve()
                 text_response = await response.text()
+                
+                # Retrieve active conversation ID and persist updated SQLite DB back to Firestore
+                active_conv_id = agent.conversation_id
+                if active_conv_id:
+                    try:
+                        active_db_path = f"/tmp/{active_conv_id}.db"
+                        if os.path.exists(active_db_path):
+                            with open(active_db_path, "rb") as f:
+                                updated_bytes = f.read()
+                            remote_ctx.save(
+                                scope="user",
+                                collection_name="sessions",
+                                doc_id=session_id,
+                                data={
+                                    "trajectory": updated_bytes,
+                                    "conversation_id": active_conv_id
+                                }
+                            )
+                            print(f"💾 Persisted GEAP Session trajectory for {session_id} (Internal ID: {active_conv_id})")
+                    except Exception as save_err:
+                        print(f"⚠️ Non-critical: Failed to save session trajectory: {save_err}")
                 
                 # Fetch any actions collected during the context session
                 actions = getattr(remote_ctx, "actions", [])
