@@ -7,12 +7,12 @@ import hubscape_adk
 
 logger = logging.getLogger(__name__)
 
-async def consultAgent(agent_id: str, query: str) -> str:
+async def consultAgent(agentId: str, query: str) -> str:
     """
     Consults a specialized subagent (e.g. todo_agent, knowledge_agent, admin_ui_agent).
     
     Args:
-        agent_id: The ID of the target subagent.
+        agentId: The ID of the target subagent.
         query: The prompt or instruction for the subagent.
     """
     try:
@@ -23,16 +23,16 @@ async def consultAgent(agent_id: str, query: str) -> str:
         # 1. Resolve subagent in whitelist
         target_agent = None
         for agent in accessible_agents:
-            if agent.get("id") == agent_id:
+            if agent.get("id") == agentId:
                 target_agent = agent
                 break
                 
         if not target_agent:
-            return f"Error: Agent '{agent_id}' is not accessible or not whitelisted."
+            return f"Error: Agent '{agentId}' is not accessible or not whitelisted."
             
         resource_name = target_agent.get("geap_resource_name")
         if not resource_name:
-            return f"Error: Agent '{agent_id}' does not have a valid remote resource name."
+            return f"Error: Agent '{agentId}' does not have a valid remote resource name."
             
         # 2. Get GCP access token
         credentials, project_id = google.auth.default(
@@ -56,7 +56,7 @@ async def consultAgent(agent_id: str, query: str) -> str:
             }
         }
         
-        logger.info(f"📡 Consulting remote GEAP subagent: {agent_id} ({resource_name})")
+        logger.info(f"📡 Consulting remote GEAP subagent: {agentId} ({resource_name})")
         async with httpx.AsyncClient() as client:
             response = await client.post(url, json=payload, headers=headers, timeout=90.0)
             response.raise_for_status()
@@ -122,5 +122,5 @@ async def consultAgent(agent_id: str, query: str) -> str:
         return subagent_output
         
     except Exception as e:
-        logger.error(f"Error consulting subagent {agent_id}: {e}", exc_info=True)
-        return f"Error: Failed to consult subagent '{agent_id}': {str(e)}"
+        logger.error(f"Error consulting subagent {agentId}: {e}", exc_info=True)
+        return f"Error: Failed to consult subagent '{agentId}': {str(e)}"
