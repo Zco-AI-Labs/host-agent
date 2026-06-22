@@ -1,0 +1,41 @@
+name: Deploy Agent to GEAP Registry
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: 'read'
+  id-token: 'write'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Google Auth (OIDC)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Deploy to GEAP Registry
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'hubscape-geap' }}
+          GCP_LOCATION: ${{ vars.GCP_LOCATION || 'us-central1' }}
+          GCP_STAGING_BUCKET: ${{ secrets.GCP_STAGING_BUCKET || 'hubscape-geap-reasoning-engines' }}
+        run: |
+          python deploy.py
