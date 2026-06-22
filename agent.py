@@ -93,9 +93,19 @@ class HostAgent:
         self.config.workspaces = []
         
         import hubscape_adk
+        import uuid
         user_id = (context or {}).get("userId") or "anonymous_user"
+        org_id = (context or {}).get("orgId")
+        hub_id = (context or {}).get("hubId")
+        
+        # Calculate stable host-agent UUID
+        agent_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/Zco-AI-Labs/host-agent"))
+        
         remote_ctx = hubscape_adk.RemoteContext(
             user_id=user_id, 
+            agent_id=agent_uuid,
+            org_id=org_id,
+            hub_id=hub_id,
             project_id=self.config.project,
             raw_context=context
         )

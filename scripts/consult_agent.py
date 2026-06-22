@@ -21,9 +21,15 @@ async def consultAgent(agentId: str, query: str) -> str:
         accessible_agents = raw_ctx.get("accessible_agents", [])
         
         # 1. Resolve subagent in whitelist
+        def normalize(s: str) -> str:
+            return "".join(c for c in s.lower() if c.isalnum())
+
         target_agent = None
+        normalized_query_id = normalize(agentId)
         for agent in accessible_agents:
-            if agent.get("id") == agentId:
+            aid = agent.get("id") or ""
+            aname = agent.get("name") or ""
+            if aid == agentId or normalize(aid) == normalized_query_id or normalize(aname) == normalized_query_id:
                 target_agent = agent
                 break
                 
