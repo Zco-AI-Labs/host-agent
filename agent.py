@@ -44,7 +44,9 @@ class HostAgent:
                     BuiltinTools.CREATE_FILE,
                     BuiltinTools.EDIT_FILE,
                     BuiltinTools.RUN_COMMAND,
-                    BuiltinTools.GENERATE_IMAGE
+                    BuiltinTools.GENERATE_IMAGE,
+                    BuiltinTools.START_SUBAGENT,
+                    BuiltinTools.ASK_QUESTION
                 ]
             ),
             policies=[policy.allow_all()],
