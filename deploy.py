@@ -38,12 +38,6 @@ if not agent_app:
 # Resolve environment configuration
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "hubscape-geap")
 LOCATION = os.getenv("GCP_LOCATION", "us-central1")
-STAGING_BUCKET = os.getenv("GCP_STAGING_BUCKET", "gs://hubscape-geap-reasoning-engines")
-if STAGING_BUCKET and not STAGING_BUCKET.startswith("gs://"):
-    STAGING_BUCKET = f"gs://{STAGING_BUCKET}"
-
-if not STAGING_BUCKET:
-    raise ValueError("GCP_STAGING_BUCKET environment variable must be set.")
 
 def get_repo_url():
     # Check environment variable first (CI/CD)
@@ -66,59 +60,66 @@ def get_repo_url():
 # Calculate deterministic agent UUID from the repository URL
 repo_url = get_repo_url()
 agent_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, repo_url))
+uuid_token = f"[agent_uuid: {agent_uuid}]"
+description = f"{description_prefix} {uuid_token}"
 
-# Dynamically construct extra_packages based on what exists in the repository
-extra_packages = []
-# 1. Standard Shared Files
-for item in ["agent.py", "hubscape_adk.py"]:
-    if os.path.exists(item):
-        extra_packages.append(item)
+print(f"Initializing Vertex AI (Project: {PROJECT_ID}, Location: {LOCATION})...")
+vertexai.init(project=PROJECT_ID, location=LOCATION)
 
-# 2. Method A (Flat / Code-Centric) Files
-for item in ["prompt.py", "tools.py", "api.py", "api_client.py", "services.py"]:
-    if os.path.exists(item):
-        extra_packages.append(item)
-
-# 3. Method B (Segregated / Decoupled) Files & Directories
-for item in ["SKILL.md", "scripts", "references", "widgets"]:
-    if os.path.exists(item):
-        extra_packages.append(item)
-
-print(f"Initializing Vertex AI (Project: {PROJECT_ID}, Location: {LOCATION}, Bucket: {STAGING_BUCKET})...")
-vertexai.init(project=PROJECT_ID, location=LOCATION, staging_bucket=STAGING_BUCKET)
-
-print(f"Deploying {display_name} (UUID: {agent_uuid}) to GEAP Agent Registry...")
-print(f"Packaged files/directories (extra_packages): {extra_packages}")
-
-reasoning_engine = reasoning_engines.ReasoningEngine.create(
-    agent_app,
-    requirements=[
-        "google-adk[a2a]",
-        "a2a-sdk",
-        "google-cloud-aiplatform",
-        "google-cloud-firestore",
-        "cloudpickle==3.0.0",
-        "httpx",
-        "pydantic>=2.0"
-    ],
-    extra_packages=extra_packages,
-    gcs_dir_name=display_name,
-    display_name=display_name,
-    description=f"{description_prefix} [agent_uuid: {agent_uuid}]"
-)
-
-print("\n🎉 Deployment Successful!")
-print(f"GEAP Resource Name: {reasoning_engine.resource_name}")
-
-# Post-Deployment Cleanup: Delete older deployments of the same agent (matching UUID in description)
+# Search for an existing reasoning engine deployment matching the UUID
+existing_engine_id = None
 try:
-    uuid_token = f"[agent_uuid: {agent_uuid}]"
-    print(f"\n🧹 Cleaning up older {display_name} deployments on GCP matching UUID {agent_uuid}...")
+    print(f"Checking for existing deployment matching UUID {agent_uuid}...")
     all_engines = reasoning_engines.ReasoningEngine.list()
     for engine in all_engines:
         gca_res = getattr(engine, "gca_resource", None)
         engine_desc = getattr(gca_res, "description", "") or ""
-        if uuid_token in engine_desc and engine.resource_name != reasoning_engine.resource_name:
+        if uuid_token in engine_desc:
+            existing_engine_id = engine.resource_name.split('/')[-1]
+            print(f"Found existing engine instance: {engine.resource_name} (ID: {existing_engine_id})")
+            break
+except Exception as list_err:
+    print(f"⚠️ Non-critical: Failed to check for existing engines: {list_err}")
+
+# Build and execute the adk deploy agent_engine command
+print(f"Deploying A2A-compliant {display_name} container to Agent Engine...")
+
+cmd = [
+    "python", "-m", "google.adk.cli", "deploy", "agent_engine",
+    "--project", PROJECT_ID,
+    "--region", LOCATION,
+    "--display_name", display_name,
+    "--description", description,
+]
+
+if existing_engine_id:
+    cmd.extend(["--agent_engine_id", existing_engine_id])
+
+# Run from the current repository root directory
+cmd.append(".")
+
+print(f"Running command: {' '.join(cmd)}")
+subprocess.run(cmd, check=True)
+
+print("\n🎉 Deployment Successful!")
+
+# Post-Deployment Cleanup: Delete other deployments of the same agent (matching UUID in description)
+try:
+    print(f"\n🧹 Checking for any stale {display_name} deployments on GCP matching UUID {agent_uuid}...")
+    all_engines = reasoning_engines.ReasoningEngine.list()
+    matching_engines = []
+    for engine in all_engines:
+        gca_res = getattr(engine, "gca_resource", None)
+        engine_desc = getattr(gca_res, "description", "") or ""
+        if uuid_token in engine_desc:
+            matching_engines.append(engine)
+    
+    if len(matching_engines) > 1:
+        # Sort by update_time descending (newest first)
+        matching_engines.sort(key=lambda x: x.gca_resource.update_time, reverse=True)
+        active_engine = matching_engines[0]
+        print(f"Active engine instance: {active_engine.resource_name}")
+        for engine in matching_engines[1:]:
             print(f"Deleting stale engine instance: {engine.resource_name}...")
             engine.delete()
             print(f"Successfully deleted {engine.resource_name}.")

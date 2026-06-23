@@ -200,3 +200,13 @@ class HostAgent:
 
 # Singleton instance used as the serialization target
 host_agent_app = HostAgent()
+
+if __name__ == "__main__":
+    import uvicorn
+    from google.adk.a2a.utils.agent_to_a2a import to_a2a
+    
+    port = int(os.getenv("PORT", 8080))
+    # root_agent is the ADK Agent instance defined above
+    app = to_a2a(root_agent, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=port)
+
