@@ -39,7 +39,7 @@ tools = load_local_tools(scripts_dir)
 
 root_agent = AdkAgent(
     model='gemini-2.5-flash',
-    name='host-agent',
+    name='host_agent',
     description='Managed GEAP Host Orchestrator.',
     instruction="You are the Hubscape central Host agent.",
     tools=tools
