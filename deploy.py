@@ -23,7 +23,6 @@ cmd = [
     "--project", PROJECT_ID,
     "--region", LOCATION,
     "--service-name", display_name,
-    "--agent-identity",
     "--no-confirm-project"
 ]
 
