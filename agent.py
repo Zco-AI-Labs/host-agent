@@ -1,5 +1,7 @@
 import os
-os.environ["GOOGLE_GENAI_USE_ENTERPRISE"] = "True"
+# Force Enterprise Mode if running in GCP environment, or if no local GEMINI_API_KEY is provided
+if not os.getenv("GEMINI_API_KEY"):
+    os.environ["GOOGLE_GENAI_USE_ENTERPRISE"] = "True"
 import asyncio
 import importlib.util
 import re

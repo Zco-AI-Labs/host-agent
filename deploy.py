@@ -41,6 +41,8 @@ LOCATION = os.getenv("GCP_LOCATION", "us-central1")
 STAGING_BUCKET = os.getenv("GCP_STAGING_BUCKET", "gs://hubscape-geap-reasoning-engines")
 if STAGING_BUCKET and not STAGING_BUCKET.startswith("gs://"):
     STAGING_BUCKET = f"gs://{STAGING_BUCKET}"
+if STAGING_BUCKET:
+    STAGING_BUCKET = f"{STAGING_BUCKET}/{display_name}"
 
 if not STAGING_BUCKET:
     raise ValueError("GCP_STAGING_BUCKET environment variable must be set.")
