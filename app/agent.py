@@ -208,6 +208,6 @@ host_agent_app = HostAgent()
 from google.adk.apps import App
 app = App(
     root_agent=root_agent,
-    name="host-agent",
+    name="app",
 )
 
