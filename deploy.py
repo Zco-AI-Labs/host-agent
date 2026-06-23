@@ -142,3 +142,87 @@ try:
     print("✨ Cleanup complete!")
 except Exception as cleanup_err:
     print(f"⚠️ Non-critical error during old deployment cleanup: {cleanup_err}")
+
+# Post-Deployment A2A Registry Update
+try:
+    print("\n🌐 Synchronizing A2A Service in Google Cloud Agent Registry...")
+    import requests
+    import google.auth
+    import google.auth.transport.requests
+    from starlette.testclient import TestClient
+    from google.adk.a2a.utils.agent_to_a2a import to_a2a
+
+    # 1. Resolve credentials
+    credentials, _ = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    auth_req = google.auth.transport.requests.Request()
+    credentials.refresh(auth_req)
+    token = credentials.token
+
+    # 2. Get active engine ID (query Vertex AI to find the latest matching deployment)
+    print("Resolving latest deployed Reasoning Engine ID...")
+    active_engine_id = None
+    all_engines = reasoning_engines.ReasoningEngine.list()
+    for engine in all_engines:
+        gca_res = getattr(engine, "gca_resource", None)
+        engine_desc = getattr(gca_res, "description", "") or ""
+        if uuid_token in engine_desc:
+            active_engine_id = engine.resource_name.split('/')[-1]
+            break
+
+    if not active_engine_id:
+        raise ValueError(f"Could not find any deployed engine matching UUID {agent_uuid}")
+
+    # 3. Generate A2A Agent Card using the ADK starlette utility
+    print("Generating A2A Agent Card...")
+    # Import agent app root_agent safely
+    adk_agent = getattr(agent, "root_agent", None)
+    if not adk_agent:
+        raise ValueError("Could not find root_agent in agent.py")
+
+    app = to_a2a(adk_agent)
+    with TestClient(app) as client:
+        card = client.get('/.well-known/agent-card.json').json()
+
+    engine_url = f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT_ID}/locations/{LOCATION}/reasoningEngines/{active_engine_id}"
+    card['url'] = engine_url
+
+    # 4. Create or update the Service resource in the Agent Registry
+    service_id = f"{display_name.replace('_', '-')}-a2a"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+    # Check if the service already exists
+    get_url = f"https://agentregistry.googleapis.com/v1alpha/projects/{PROJECT_ID}/locations/{LOCATION}/services/{service_id}"
+    res = requests.get(get_url, headers=headers)
+    exists = (res.status_code == 200)
+
+    payload = {
+        "displayName": display_name,
+        "description": description_prefix,
+        "agentSpec": {
+            "type": "A2A_AGENT_CARD",
+            "content": card
+        }
+    }
+
+    if exists:
+        print(f"Service {service_id} exists. Updating Spec...")
+        patch_url = f"https://agentregistry.googleapis.com/v1alpha/projects/{PROJECT_ID}/locations/{LOCATION}/services/{service_id}?updateMask=displayName,description,agentSpec"
+        res = requests.patch(patch_url, json=payload, headers=headers)
+    else:
+        print(f"Service {service_id} does not exist. Creating...")
+        post_url = f"https://agentregistry.googleapis.com/v1alpha/projects/{PROJECT_ID}/locations/{LOCATION}/services?serviceId={service_id}"
+        res = requests.post(post_url, json=payload, headers=headers)
+
+    if res.status_code in (200, 201):
+        print(f"✅ Successfully registered {service_id} as A2A service in GCP Agent Registry!")
+    else:
+        print(f"⚠️ Agent Registry Sync returned non-success status {res.status_code}: {res.text}")
+
+except Exception as registry_err:
+    print(f"⚠️ Non-critical: Failed to sync with GCP Agent Registry: {registry_err}")
+
