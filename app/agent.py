@@ -1,6 +1,6 @@
 import os
-# Force Enterprise Mode if running in GCP environment, or if no local GEMINI_API_KEY is provided
-if not os.getenv("GEMINI_API_KEY"):
+# Force Developer API (Enterprise) mode ONLY if running locally and not using Vertex AI
+if not os.getenv("GEMINI_API_KEY") and not os.getenv("GOOGLE_GENAI_USE_VERTEXAI"):
     os.environ["GOOGLE_GENAI_USE_ENTERPRISE"] = "True"
 import asyncio
 import importlib.util
