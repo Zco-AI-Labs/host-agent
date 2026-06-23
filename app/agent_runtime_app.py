@@ -26,7 +26,6 @@ from google.adk.apps import App
 from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.cloud import logging as google_cloud_logging
 from vertexai.preview.reasoning_engines import A2aAgent
 
 from app.agent import app as adk_app
@@ -112,15 +111,21 @@ class AgentEngineApp(A2aAgent):
         setup_telemetry()
         super().set_up()
         logging.basicConfig(level=logging.INFO)
-        logging_client = google_cloud_logging.Client()
-        self.logger = logging_client.logger(__name__)
+        self.logger = logging.getLogger(__name__)
         if gemini_location:
             os.environ["GOOGLE_CLOUD_LOCATION"] = gemini_location
 
     def register_feedback(self, feedback: dict[str, Any]) -> None:
         """Collect and log feedback."""
         feedback_obj = Feedback.model_validate(feedback)
-        self.logger.log_struct(feedback_obj.model_dump(), severity="INFO")
+        try:
+            from google.cloud import logging as google_cloud_logging
+            logging_client = google_cloud_logging.Client()
+            gcp_logger = logging_client.logger("app.agent_runtime_app")
+            gcp_logger.log_struct(feedback_obj.model_dump(), severity="INFO")
+        except Exception as e:
+            import json
+            self.logger.info(json.dumps({"feedback": feedback_obj.model_dump(), "logging_error": str(e)}))
 
     def register_operations(self) -> dict[str, list[str]]:
         """Registers the operations of the Agent."""
