@@ -1,4 +1,5 @@
 import os
+os.environ["GOOGLE_GENAI_USE_ENTERPRISE"] = "True"
 import asyncio
 import importlib.util
 import re
