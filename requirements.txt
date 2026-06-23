@@ -1,6 +1,6 @@
 google-adk[a2a]
-a2a-sdk[http-server]
-google-cloud-aiplatform
+a2a-sdk[http-server]~=0.3.22
+google-cloud-aiplatform==1.149.0
 google-cloud-firestore
 cloudpickle==3.0.0
 httpx

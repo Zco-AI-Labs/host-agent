@@ -10,7 +10,7 @@ authors = [
 
 dependencies = [
     "google-adk[a2a]>=2.0.0,<3.0.0",
-    "a2a-sdk[http-server]",
+    "a2a-sdk[http-server]~=0.3.22",
     "google-cloud-firestore",
     "cloudpickle==3.0.0",
     "httpx",
@@ -18,7 +18,7 @@ dependencies = [
     "uvicorn",
     "requests",
     "google-cloud-logging>=3.12.0,<4.0.0",
-    "google-cloud-aiplatform[evaluation,agent-engines]>=1.156.0",
+    "google-cloud-aiplatform[evaluation,agent-engines]==1.149.0",
     "protobuf>=6.31.1,<7.0.0",
 ]
 requires-python = ">=3.11,<3.14"
@@ -101,5 +101,8 @@ asyncio_default_fixture_loop_scope = "function"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app","frontend"]
+
+[tool.uv]
+override-dependencies = ["google-cloud-aiplatform==1.149.0"]
 
 
