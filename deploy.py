@@ -78,8 +78,13 @@ try:
             # Check if this engine was deployed with package_spec (legacy pickled)
             spec = getattr(gca_res, "spec", None)
             is_legacy = False
-            if spec and hasattr(spec, "ListFields"):
-                is_legacy = any(f.name == "package_spec" for f, _ in spec.ListFields())
+            if spec:
+                pb_msg = getattr(spec, "_pb", None)
+                if pb_msg and hasattr(pb_msg, "ListFields"):
+                    is_legacy = any(f.name == "package_spec" for f, _ in pb_msg.ListFields())
+                elif hasattr(spec, "package_spec") and spec.package_spec:
+                    if getattr(spec.package_spec, "pickle_object_gcs_uri", None):
+                        is_legacy = True
             
             if is_legacy:
                 print(f"Found existing engine instance {engine.resource_name} but it is a legacy pickled deployment.")
