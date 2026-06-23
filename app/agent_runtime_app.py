@@ -62,6 +62,14 @@ class AgentEngineApp(AdkApp):
         import sys
         res = f"Python Executable: {sys.executable}\n"
         res += f"Python Path: {sys.path}\n"
+        try:
+            dir_path = os.path.dirname(os.path.abspath(__file__))
+            agent_path = os.path.join(dir_path, "agent.py")
+            with open(agent_path, "r") as f:
+                agent_lines = [f.readline() for _ in range(30)]
+            res += "--- agent.py Contents ---\n" + "".join(agent_lines) + "-------------------------\n"
+        except Exception as read_err:
+            res += f"Failed to read agent.py: {read_err}\n"
         res += f"Project: {project}\n"
         res += f"Token Info: {token_info}\n"
         res += f"Environment Variables:\n"
