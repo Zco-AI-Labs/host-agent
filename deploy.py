@@ -14,7 +14,7 @@ try:
     for attr in ["host_agent_app", "todo_agent_app", "simple_form_agent_app"]:
         if hasattr(agent, attr):
             agent_app = getattr(agent, attr)
-            display_name = attr.replace("_app", "").replace("_", "-")
+            display_name = attr.replace("_app", "")
             if "host" in attr:
                 description_prefix = "Managed GEAP Host Orchestrator."
             elif "todo" in attr:
@@ -26,7 +26,7 @@ try:
         for attr in dir(agent):
             if attr.endswith("_app"):
                 agent_app = getattr(agent, attr)
-                display_name = attr.replace("_app", "").replace("_", "-")
+                display_name = attr.replace("_app", "")
                 description_prefix = f"Managed GEAP custom agent ({display_name})."
                 break
 except Exception as e:
