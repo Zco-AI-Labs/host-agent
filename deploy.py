@@ -41,8 +41,6 @@ LOCATION = os.getenv("GCP_LOCATION", "us-central1")
 STAGING_BUCKET = os.getenv("GCP_STAGING_BUCKET", "gs://hubscape-geap-reasoning-engines")
 if STAGING_BUCKET and not STAGING_BUCKET.startswith("gs://"):
     STAGING_BUCKET = f"gs://{STAGING_BUCKET}"
-if STAGING_BUCKET:
-    STAGING_BUCKET = f"{STAGING_BUCKET}/{display_name}"
 
 if not STAGING_BUCKET:
     raise ValueError("GCP_STAGING_BUCKET environment variable must be set.")
@@ -103,6 +101,7 @@ reasoning_engine = reasoning_engines.ReasoningEngine.create(
         "pydantic>=2.0"
     ],
     extra_packages=extra_packages,
+    gcs_dir_name=display_name,
     display_name=display_name,
     description=f"{description_prefix} [agent_uuid: {agent_uuid}]"
 )
