@@ -36,6 +36,8 @@ class AgentEngineApp(AdkApp):
         vertexai.init()
         setup_telemetry()
         super().set_up()
+        # Explicitly pop GOOGLE_GENAI_USE_ENTERPRISE to force regional Vertex AI routing
+        os.environ.pop("GOOGLE_GENAI_USE_ENTERPRISE", None)
         logging.basicConfig(level=logging.INFO)
         logging_client = google_cloud_logging.Client()
         self.logger = logging_client.logger(__name__)
