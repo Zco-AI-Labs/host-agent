@@ -1,7 +1,7 @@
 name: "host-agent"
 acli_version: "0.5.1"
 agent_directory: "app"
-region: "us-east1"
+region: "us-central1"
 base_template: "local_host-agent"
 generated_at: "2026-06-23T18:33:43.875242+00:00"
 language: "python"
