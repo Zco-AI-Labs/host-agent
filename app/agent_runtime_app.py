@@ -11,22 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import asyncio
 import logging
 import os
 from typing import Any
 
-import nest_asyncio
 import vertexai
-from a2a.types import AgentCapabilities, AgentCard, AgentExtension, TransportProtocol
 from dotenv import load_dotenv
-from google.adk.a2a.executor.a2a_agent_executor import A2aAgentExecutor
-from google.adk.a2a.utils.agent_card_builder import AgentCardBuilder
-from google.adk.apps import App
 from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from vertexai.preview.reasoning_engines import A2aAgent
+from google.adk.sessions.in_memory_session_service import InMemorySessionService
+from google.cloud import logging as google_cloud_logging
+from vertexai.agent_engines.templates.adk import AdkApp
 
 from app.agent import app as adk_app
 from app.app_utils.telemetry import setup_telemetry
@@ -35,102 +29,55 @@ from app.app_utils.typing import Feedback
 # Load environment variables from .env file at runtime
 load_dotenv()
 
-# Initialize Vertex AI at module level before creating the agent runtime app
-# to ensure initializer.global_config.project is populated, preventing a TypeError
-# in A2aAgent.__init__ inside clean container environments.
-vertexai.init(
-    project=os.getenv("PROJECT_ID") or os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT") or "hubscape-geap",
-    location=os.getenv("LOCATION") or os.getenv("GCP_LOCATION") or os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1"
-)
 
-
-class AgentEngineApp(A2aAgent):
-    @staticmethod
-    def create(
-        app: App | None = None,
-        artifact_service: Any = None,
-        session_service: Any = None,
-    ) -> Any:
-        """Create an AgentEngineApp instance.
-
-        This method detects whether it's being called in an async context (like notebooks
-        or Agent Runtime) and handles agent card creation appropriately.
-        """
-        if app is None:
-            app = adk_app
-
-        def create_runner() -> Runner:
-            """Create a Runner for the AgentEngineApp."""
-            return Runner(
-                app=app,
-                session_service=session_service,
-                artifact_service=artifact_service,
-            )
-
-        # Build agent card in an async context if needed
-        try:
-            asyncio.get_running_loop()
-            # Running event loop detected - enable nested asyncio.run()
-            nest_asyncio.apply()
-        except RuntimeError:
-            pass
-
-        agent_card = asyncio.run(AgentEngineApp.build_agent_card(app=app))
-
-        return AgentEngineApp(
-            agent_executor_builder=lambda: A2aAgentExecutor(runner=create_runner()),
-            agent_card=agent_card,
-        )
-
-    @staticmethod
-    async def build_agent_card(app: App) -> AgentCard:
-        """Builds the Agent Card dynamically from the app."""
-        agent_card_builder = AgentCardBuilder(
-            agent=app.root_agent,
-            # Agent Runtime does not support streaming yet
-            capabilities=AgentCapabilities(
-                streaming=False,
-                extensions=[
-                    AgentExtension(
-                        uri="https://google.github.io/adk-docs/a2a/a2a-extension/",
-                        description="Ability to use the new agent executor implementation",
-                    ),
-                ],
-            ),
-            rpc_url="http://localhost:9999/",
-            agent_version=os.getenv("AGENT_VERSION", "0.1.0"),
-        )
-        agent_card = await agent_card_builder.build()
-        agent_card.preferred_transport = TransportProtocol.http_json  # Http Only.
-        agent_card.supports_authenticated_extended_card = True
-        return agent_card
-
+class AgentEngineApp(AdkApp):
     def set_up(self) -> None:
         """Initialize the agent engine app with logging and telemetry."""
         vertexai.init()
         setup_telemetry()
         super().set_up()
         logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
+        logging_client = google_cloud_logging.Client()
+        self.logger = logging_client.logger(__name__)
         if gemini_location:
             os.environ["GOOGLE_CLOUD_LOCATION"] = gemini_location
+
+    def inspect_env(self) -> str:
+        """Inspects environment and credentials."""
+        try:
+            import google.auth
+            credentials, project = google.auth.default(
+                scopes=['https://www.googleapis.com/auth/cloud-platform']
+            )
+            from google.auth.transport.requests import Request
+            credentials.refresh(Request())
+            token_info = f"Token present: {bool(credentials.token)}"
+            if credentials.token:
+                token_info += f" (length: {len(credentials.token)}, starts with: {credentials.token[:10]})"
+        except Exception as e:
+            token_info = f"Failed to load credentials: {e}"
+
+        env_vars = {k: v for k, v in os.environ.items() if not k.endswith("KEY") and "PASSWORD" not in k and "SECRET" not in k}
+        
+        import sys
+        res = f"Python Executable: {sys.executable}\n"
+        res += f"Python Path: {sys.path}\n"
+        res += f"Project: {project}\n"
+        res += f"Token Info: {token_info}\n"
+        res += f"Environment Variables:\n"
+        for k, v in env_vars.items():
+            res += f"  {k}: {v}\n"
+        return res
 
     def register_feedback(self, feedback: dict[str, Any]) -> None:
         """Collect and log feedback."""
         feedback_obj = Feedback.model_validate(feedback)
-        try:
-            from google.cloud import logging as google_cloud_logging
-            logging_client = google_cloud_logging.Client()
-            gcp_logger = logging_client.logger("app.agent_runtime_app")
-            gcp_logger.log_struct(feedback_obj.model_dump(), severity="INFO")
-        except Exception as e:
-            import json
-            self.logger.info(json.dumps({"feedback": feedback_obj.model_dump(), "logging_error": str(e)}))
+        self.logger.log_struct(feedback_obj.model_dump(), severity="INFO")
 
     def register_operations(self) -> dict[str, list[str]]:
         """Registers the operations of the Agent."""
         operations = super().register_operations()
-        operations[""] = [*operations.get("", []), "register_feedback"]
+        operations[""] = [*operations.get("", []), "register_feedback", "inspect_env"]
         return operations
 
     def clone(self) -> "AgentEngineApp":
@@ -140,12 +87,12 @@ class AgentEngineApp(A2aAgent):
 
 gemini_location = os.environ.get("GOOGLE_CLOUD_LOCATION")
 logs_bucket_name = os.environ.get("LOGS_BUCKET_NAME")
-agent_runtime = AgentEngineApp.create(
+agent_runtime = AgentEngineApp(
     app=adk_app,
-    artifact_service=(
+    artifact_service_builder=lambda: (
         GcsArtifactService(bucket_name=logs_bucket_name)
         if logs_bucket_name
         else InMemoryArtifactService()
     ),
-    session_service=InMemorySessionService(),
+    session_service_builder=lambda: InMemorySessionService(),
 )
