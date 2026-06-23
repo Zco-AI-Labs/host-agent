@@ -16,13 +16,20 @@ class RemoteAuth:
         return self.user_id
 
 class RemoteContext:
-    def __init__(self, user_id: str, agent_id: str = None, org_id: str = None, hub_id: str = None, project_id: str = None, raw_context: dict = None):
+    def __init__(self, user_id: str, agent_id: str = None, org_id: str = None, hub_id: str = None, project_id: str = None, raw_context: dict = None, allow_generative_ui: Optional[bool] = None):
         self.auth = RemoteAuth(user_id, org_id, hub_id)
         self.agent_id = agent_id or "default_agent"
         self.project_id = project_id
         self.raw_context = raw_context or {}
         self.actions = []
         self._db = None
+        
+        # Resolve allow_generative_ui flag
+        if allow_generative_ui is not None:
+            self.allow_generative_ui = allow_generative_ui
+        else:
+            platform_config = self.raw_context.get("config") or {}
+            self.allow_generative_ui = platform_config.get("allowGenerativeUi", True)
 
     @property
     def _db_client(self):
@@ -104,6 +111,57 @@ class RemoteContext:
         doc_path = self.get_agent_db_path(scope, collection_name, doc_id)
         doc_ref = self._db_client.document(doc_path)
         doc_ref.delete()
+
+    def show_widget(self, widget_template_id: str, data: dict = None) -> dict:
+        """Loads a predefined widget JSON and registers a client action directive to show it."""
+        try:
+            import os
+            import json
+            runtime_dir = os.path.dirname(os.path.abspath(__file__))
+            filename = widget_template_id if widget_template_id.endswith(".json") else f"{widget_template_id}.json"
+            template_path = os.path.join(runtime_dir, "widgets", filename)
+            if not os.path.exists(template_path):
+                raise FileNotFoundError(f"Widget template {filename} not found at: {template_path}")
+            
+            with open(template_path, "r", encoding="utf-8") as f:
+                widget_config = json.load(f)
+
+            # Replacements (e.g. {{agent_id}} -> actual agent ID)
+            config_str = json.dumps(widget_config).replace("{{agent_id}}", self.agent_id)
+            widget_config = json.loads(config_str)
+
+            action_payload = {
+                "type": "OPEN_AGENT_WIDGET",
+                "payload": {
+                    "widgetId": widget_template_id,
+                    "widgetConfig": widget_config,
+                    "data": data or {},
+                    "styling": self.raw_context.get("styling", {}),
+                    "userPreferences": self.raw_context.get("userPreferences", {})
+                }
+            }
+            self.actions.append(action_payload)
+            return {"status": "success", "message": f"Widget '{widget_template_id}' queued."}
+        except Exception as e:
+            raise RuntimeError(f"Failed to load widget '{widget_template_id}': {str(e)}")
+
+    def show_custom_ui(self, layout: dict, data: dict = None) -> dict:
+        """Registers an OPEN_AGENT_WIDGET client action directive with a generative layout."""
+        if not getattr(self, "allow_generative_ui", True):
+            raise PermissionError("Generative UI is disabled for this agent. Only predefined developer widgets are allowed.")
+            
+        action_payload = {
+            "type": "OPEN_AGENT_WIDGET",
+            "payload": {
+                "widgetId": "generative_custom_ui",
+                "widgetConfig": layout,
+                "data": data or {},
+                "styling": self.raw_context.get("styling", {}),
+                "userPreferences": self.raw_context.get("userPreferences", {})
+            }
+        }
+        self.actions.append(action_payload)
+        return {"status": "success", "message": "Custom UI layout queued."}
 
 def get_context() -> RemoteContext:
     try:

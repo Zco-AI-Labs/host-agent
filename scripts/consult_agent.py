@@ -88,6 +88,20 @@ async def consultAgent(agentId: str, query: str) -> str:
                         })
                         return message or f"Opening the {parameters.get('widgetType')} widget."
                         
+                    elif target_tool == "openAgentWidget":
+                        ctx.actions.append({
+                            "type": "OPEN_AGENT_WIDGET",
+                            "payload": {
+                                "id": agentId,
+                                "widgetId": parameters.get("widgetId"),
+                                "widgetConfig": parameters.get("widgetConfig"),
+                                "data": parameters.get("data") or {},
+                                "styling": parameters.get("styling") or {},
+                                "userPreferences": parameters.get("userPreferences") or {}
+                            }
+                        })
+                        return message or f"Displaying agent widget: {parameters.get('widgetId')}"
+                        
                     elif target_tool == "suggestQueries":
                         ctx.actions.append({
                             "type": "SET_SUGGESTIONS",

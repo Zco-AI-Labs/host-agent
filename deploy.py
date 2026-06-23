@@ -11,14 +11,16 @@ description_prefix = "Managed GEAP agent."
 
 try:
     import agent
-    for attr in ["host_agent_app", "todo_agent_app"]:
+    for attr in ["host_agent_app", "todo_agent_app", "simple_form_agent_app"]:
         if hasattr(agent, attr):
             agent_app = getattr(agent, attr)
             display_name = attr.replace("_app", "").replace("_", "-")
             if "host" in attr:
                 description_prefix = "Managed GEAP Host Orchestrator."
-            else:
+            elif "todo" in attr:
                 description_prefix = "Managed GEAP agent for user personal to-do lists."
+            else:
+                description_prefix = "Managed GEAP agent to display and capture contact support forms."
             break
     if not agent_app:
         for attr in dir(agent):
@@ -78,7 +80,7 @@ for item in ["prompt.py", "tools.py", "api.py", "api_client.py", "services.py"]:
         extra_packages.append(item)
 
 # 3. Method B (Segregated / Decoupled) Files & Directories
-for item in ["SKILL.md", "scripts", "references"]:
+for item in ["SKILL.md", "scripts", "references", "widgets"]:
     if os.path.exists(item):
         extra_packages.append(item)
 
@@ -91,7 +93,7 @@ print(f"Packaged files/directories (extra_packages): {extra_packages}")
 reasoning_engine = reasoning_engines.ReasoningEngine.create(
     agent_app,
     requirements=[
-        "google-antigravity",
+        "google-adk",
         "google-cloud-aiplatform",
         "google-cloud-firestore",
         "cloudpickle==3.0.0",

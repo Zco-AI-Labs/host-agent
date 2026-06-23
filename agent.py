@@ -3,9 +3,9 @@ import asyncio
 import importlib.util
 import re
 import json
-from google.antigravity import Agent, LocalAgentConfig, CapabilitiesConfig
-from google.antigravity.types import BuiltinTools, CustomSystemInstructions
-from google.antigravity.hooks import policy
+from google.adk import Agent as AdkAgent
+from google.adk.runners import Runner
+from google.genai import types
 
 def load_local_tools(scripts_dir: str) -> list:
     tools = []
@@ -32,39 +32,24 @@ def load_local_tools(scripts_dir: str) -> list:
                 pass
     return tools
 
+# Module-level discovery symbols for ADK CLI
+runtime_dir = os.path.dirname(os.path.abspath(__file__))
+scripts_dir = os.path.join(runtime_dir, "scripts")
+tools = load_local_tools(scripts_dir)
+
+root_agent = AdkAgent(
+    model='gemini-2.5-flash',
+    name='host-agent',
+    description='Managed GEAP Host Orchestrator.',
+    instruction="You are the Hubscape central Host agent.",
+    tools=tools
+)
+
 class HostAgent:
     def __init__(self):
-        # Initialize configuration with empty properties.
-        # We will load paths, tools, and system prompt dynamically at runtime.
-        self.config = LocalAgentConfig(
-            skills_paths=[],
-            workspaces=[],
-            tools=[],
-            capabilities=CapabilitiesConfig(
-                disabled_tools=[
-                    BuiltinTools.LIST_DIR,
-                    BuiltinTools.SEARCH_DIR,
-                    BuiltinTools.FIND_FILE,
-                    BuiltinTools.VIEW_FILE,
-                    BuiltinTools.CREATE_FILE,
-                    BuiltinTools.EDIT_FILE,
-                    BuiltinTools.RUN_COMMAND,
-                    BuiltinTools.GENERATE_IMAGE,
-                    BuiltinTools.START_SUBAGENT,
-                    BuiltinTools.ASK_QUESTION
-                ]
-            ),
-            policies=[policy.allow_all()],
-            vertex=True,
-            project=os.getenv("PROJECT_ID") or os.getenv("GCP_PROJECT_ID") or "hubscape-geap",
-            location=os.getenv("GCP_LOCATION") or os.getenv("LOCATION") or "us-central1",
-            model="gemini-2.5-flash"
-        )
+        self.runner = None
 
     async def query(self, question: str, context: dict = None) -> str:
-        """
-        Interface method invoked by GEAP / Vertex AI Reasoning Engines.
-        """
         runtime_dir = os.path.dirname(os.path.abspath(__file__))
         
         # --- DEBUG HOOK ---
@@ -76,22 +61,6 @@ class HostAgent:
             return f"HostAgent Runtime Dir: {runtime_dir}\nFiles:\n" + "\n".join(files)
         # --- END DEBUG HOOK ---
 
-        scripts_dir = os.path.join(runtime_dir, "scripts")
-        
-        # Load the custom system instruction passed dynamically from the backend context
-        system_instruction = (context or {}).get("system_instruction")
-        if system_instruction:
-            self.config.system_instructions = CustomSystemInstructions(text=system_instruction)
-        else:
-            self.config.system_instructions = CustomSystemInstructions(
-                text="You are the Hubscape central Host agent."
-            )
-        
-        # Load local python scripts as tools
-        self.config.tools = load_local_tools(scripts_dir)
-        self.config.skills_paths = [runtime_dir]
-        self.config.workspaces = []
-        
         import hubscape_adk
         import uuid
         user_id = (context or {}).get("userId") or "anonymous_user"
@@ -100,85 +69,113 @@ class HostAgent:
         
         # Calculate stable host-agent UUID
         agent_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/Zco-AI-Labs/host-agent"))
+        project_id = os.getenv("PROJECT_ID") or os.getenv("GCP_PROJECT_ID") or "hubscape-geap"
         
         remote_ctx = hubscape_adk.RemoteContext(
             user_id=user_id, 
             agent_id=agent_uuid,
             org_id=org_id,
             hub_id=hub_id,
-            project_id=self.config.project,
+            project_id=project_id,
             raw_context=context
         )
         
         # Resolve session ID
-        session_id = (context or {}).get("sessionId")
-        if not session_id:
-            session_id = f"session_{user_id}_{hub_id}"
-            
+        session_id = (context or {}).get("sessionId") or f"session_{user_id}_{hub_id}"
+        
+        # 1. Resolve dynamic system instructions from context
+        system_instruction = (context or {}).get("system_instruction") or "You are the Hubscape central Host agent."
+        root_agent.instruction = system_instruction
+        
         with hubscape_adk.context_session(remote_ctx):
-            # Try to restore session trajectory from Firestore
-            conv_id = None
-            db_path = None
+            if not self.runner:
+                from google.adk.sessions.in_memory_session_service import InMemorySessionService
+                from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
+                from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+                from google.adk.auth.credential_service.in_memory_credential_service import InMemoryCredentialService
+                
+                self.runner = Runner(
+                    agent=root_agent,
+                    app_name='host-agent',
+                    session_service=InMemorySessionService(),
+                    artifact_service=InMemoryArtifactService(),
+                    memory_service=InMemoryMemoryService(),
+                    credential_service=InMemoryCredentialService(),
+                    auto_create_session=True
+                )
+            
+            # 2. Try to restore session trajectory from Firestore using ADK serialization
             try:
                 session_doc = remote_ctx.get(scope="user", collection_name="sessions", doc_id=session_id)
-                if session_doc and "trajectory" in session_doc and "conversation_id" in session_doc:
-                    conv_id = session_doc["conversation_id"]
-                    trajectory_bytes = session_doc["trajectory"]
+                if session_doc and "adk_session" in session_doc:
+                    adk_session_json = session_doc["adk_session"]
+                    from google.adk.sessions import Session
+                    session_obj = Session.model_validate_json(adk_session_json)
                     
-                    # Handle if firestore Blob wrapper is returned
-                    if hasattr(trajectory_bytes, "value"):
-                        trajectory_bytes = trajectory_bytes.value
-                        
-                    db_path = f"/tmp/{conv_id}.db"
-                    with open(db_path, "wb") as f:
-                        f.write(trajectory_bytes)
-                        
-                    self.config.conversation_id = conv_id
-                    self.config.save_dir = "/tmp"
-                    print(f"🔄 Resuming GEAP Session: {session_id} (Internal ID: {conv_id})")
+                    # Inject loaded session into InMemorySessionService cache
+                    session_service = self.runner.session_service
+                    app_name = session_obj.app_name
+                    uid = session_obj.user_id
+                    sid = session_obj.id
+                    
+                    if app_name not in session_service.sessions:
+                        session_service.sessions[app_name] = {}
+                    if uid not in session_service.sessions[app_name]:
+                        session_service.sessions[app_name][uid] = {}
+                    session_service.sessions[app_name][uid][sid] = session_obj
+                    print(f"🔄 Resumed ADK GEAP Session: {session_id}")
                 else:
-                    self.config.save_dir = "/tmp"
-                    self.config.conversation_id = None
-                    print(f"🌱 Starting New GEAP Session: {session_id}")
+                    print(f"🌱 Starting New ADK GEAP Session: {session_id}")
             except Exception as restore_err:
                 print(f"⚠️ Non-critical: Failed to restore session trajectory: {restore_err}")
-                self.config.save_dir = "/tmp"
-                self.config.conversation_id = None
+
+            new_message = types.Content(
+                parts=[types.Part.from_text(text=question)]
+            )
+            
+            text_response = ""
+            async for event in self.runner.run_async(
+                user_id=user_id,
+                session_id=session_id,
+                new_message=new_message
+            ):
+                if event.output:
+                    text_response += event.output
+                elif event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if part.text:
+                            text_response += part.text
+            
+            # 3. Retrieve updated session state and persist back to Firestore
+            try:
+                session_service = self.runner.session_service
+                updated_session = await session_service.get_session(
+                    app_name='host-agent',
+                    user_id=user_id,
+                    session_id=session_id
+                )
+                if updated_session:
+                    serialized_json = updated_session.model_dump_json()
+                    remote_ctx.save(
+                        scope="user",
+                        collection_name="sessions",
+                        doc_id=session_id,
+                        data={
+                            "adk_session": serialized_json
+                        }
+                    )
+                    print(f"💾 Persisted ADK GEAP Session trajectory for {session_id}")
+            except Exception as save_err:
+                print(f"⚠️ Non-critical: Failed to save session trajectory: {save_err}")
                 
-            async with Agent(config=self.config) as agent:
-                response = await agent.chat(question)
-                await response.resolve()
-                text_response = await response.text()
-                
-                # Retrieve active conversation ID and persist updated SQLite DB back to Firestore
-                active_conv_id = agent.conversation_id
-                if active_conv_id:
-                    try:
-                        active_db_path = f"/tmp/{active_conv_id}.db"
-                        if os.path.exists(active_db_path):
-                            with open(active_db_path, "rb") as f:
-                                updated_bytes = f.read()
-                            remote_ctx.save(
-                                scope="user",
-                                collection_name="sessions",
-                                doc_id=session_id,
-                                data={
-                                    "trajectory": updated_bytes,
-                                    "conversation_id": active_conv_id
-                                }
-                            )
-                            print(f"💾 Persisted GEAP Session trajectory for {session_id} (Internal ID: {active_conv_id})")
-                    except Exception as save_err:
-                        print(f"⚠️ Non-critical: Failed to save session trajectory: {save_err}")
-                
-                # Fetch any actions collected during the context session
-                actions = getattr(remote_ctx, "actions", [])
-                
-                # Return the result as a structured JSON string
-                return json.dumps({
-                    "text": text_response,
-                    "actions": actions
-                })
+            # Fetch any actions collected during the context session
+            actions = getattr(remote_ctx, "actions", [])
+            
+            # Return the result as a structured JSON string
+            return json.dumps({
+                "text": text_response,
+                "actions": actions
+            })
 
 # Singleton instance used as the serialization target
 host_agent_app = HostAgent()

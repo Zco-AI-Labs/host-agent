@@ -1,4 +1,4 @@
-google-antigravity
+google-adk
 google-cloud-aiplatform
 google-cloud-firestore
 cloudpickle==3.0.0
