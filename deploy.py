@@ -75,11 +75,22 @@ try:
         gca_res = getattr(engine, "gca_resource", None)
         engine_desc = getattr(gca_res, "description", "") or ""
         if uuid_token in engine_desc:
-            existing_engine_id = engine.resource_name.split('/')[-1]
-            print(f"Found existing engine instance: {engine.resource_name} (ID: {existing_engine_id})")
-            break
+            # Check if this engine was deployed with package_spec (legacy pickled)
+            spec = getattr(gca_res, "spec", None)
+            is_legacy = False
+            if spec and hasattr(spec, "ListFields"):
+                is_legacy = any(f.name == "package_spec" for f, _ in spec.ListFields())
+            
+            if is_legacy:
+                print(f"Found existing engine instance {engine.resource_name} but it is a legacy pickled deployment.")
+                print("We cannot update legacy pickled deployments in-place. We will deploy a new instance and clean up the legacy one.")
+            else:
+                existing_engine_id = engine.resource_name.split('/')[-1]
+                print(f"Found existing engine instance: {engine.resource_name} (ID: {existing_engine_id})")
+                break
 except Exception as list_err:
     print(f"⚠️ Non-critical: Failed to check for existing engines: {list_err}")
+
 
 # Build and execute the adk deploy agent_engine command
 print(f"Deploying A2A-compliant {display_name} container to Agent Engine...")
