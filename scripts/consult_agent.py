@@ -4,6 +4,11 @@ import httpx
 import google.auth
 import google.auth.transport.requests
 import hubscape_adk
+from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
+from google.adk.events.event import Event as AdkEvent
+from google.genai import types as genai_types
+from google.adk.sessions.session import Session
+from google.adk.agents.invocation_context import InvocationContext
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +23,13 @@ async def consultAgent(agentId: str, query: str) -> str:
     try:
         ctx = hubscape_adk.get_context()
         raw_ctx = ctx.raw_context
+        
+        # Prevent infinite agent-to-agent delegation loops (max depth = 3)
+        current_depth = raw_ctx.get("depth", 0)
+        max_depth = 3
+        if current_depth >= max_depth:
+            return f"Error: Maximum agent delegation depth of {max_depth} exceeded. Aborting call to prevent infinite loops."
+            
         accessible_agents = raw_ctx.get("accessible_agents", [])
         
         # 1. Resolve subagent in whitelist
@@ -36,9 +48,19 @@ async def consultAgent(agentId: str, query: str) -> str:
         if not target_agent:
             return f"Error: Agent '{agentId}' is not accessible or not whitelisted."
             
+        # Resolve A2A URL or fallback to computing it from geap_resource_name
+        a2a_url = target_agent.get("a2aUrl")
         resource_name = target_agent.get("geap_resource_name")
-        if not resource_name:
-            return f"Error: Agent '{agentId}' does not have a valid remote resource name."
+        if not a2a_url and resource_name:
+            location = "us-central1"
+            if "/" in resource_name:
+                parts = resource_name.split("/")
+                if len(parts) > 3:
+                    location = parts[3]
+            a2a_url = f"https://{location}-aiplatform.googleapis.com/v1/{resource_name}"
+            
+        if not a2a_url:
+            return f"Error: Agent '{agentId}' does not have a valid A2A URL or remote resource name."
             
         # 2. Get GCP access token
         credentials, project_id = google.auth.default(
@@ -48,26 +70,62 @@ async def consultAgent(agentId: str, query: str) -> str:
         credentials.refresh(auth_req)
         token = credentials.token
         
-        location = "us-central1"
-        url = f"https://{location}-aiplatform.googleapis.com/v1/{resource_name}:query"
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
         }
         
-        payload = {
-            "input": {
-                "question": query,
-                "context": raw_ctx
-            }
-        }
+        httpx_client = httpx.AsyncClient(headers=headers, timeout=90.0)
         
-        logger.info(f"📡 Consulting remote GEAP subagent: {agentId} ({resource_name})")
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=payload, headers=headers, timeout=90.0)
-            response.raise_for_status()
-            data = response.json()
-            subagent_output = data.get("output", "")
+        logger.info(f"📡 Consulting remote A2A subagent via ADK client: {agentId} ({a2a_url})")
+        
+        # Request metadata provider to securely propagate RBAC context and increment call depth
+        def request_meta_provider(invocation_context, a2a_message):
+            return {
+                "userId": ctx.auth.get_user_id(),
+                "user_id": ctx.auth.get_user_id(),
+                "orgId": ctx.auth.org_id,
+                "org_id": ctx.auth.org_id,
+                "hubId": ctx.auth.hub_id,
+                "hub_id": ctx.auth.hub_id,
+                "accessible_agents": accessible_agents,
+                "depth": current_depth + 1
+            }
+
+        # Instantiate the Remote A2A Agent using the ADK Client
+        subagent = RemoteA2aAgent(
+            name=agentId,
+            agent_card=a2a_url,
+            httpx_client=httpx_client,
+            a2a_request_meta_provider=request_meta_provider
+        )
+        
+        # Construct dummy session context containing the user's specific query
+        adk_event = AdkEvent(
+            author="user",
+            content=genai_types.Content(parts=[genai_types.Part.from_text(text=query)])
+        )
+        dummy_session = Session(
+            id="dummy_session_id",
+            app_name="consult_agent",
+            user_id="dummy_user",
+            state={},
+            events=[adk_event]
+        )
+        parent_ctx = InvocationContext(
+            invocation_id="dummy_invocation_id",
+            branch=0,
+            session=dummy_session
+        )
+        
+        subagent_output = ""
+        async for ev in subagent.run_async(parent_context=parent_ctx):
+            if ev.output:
+                subagent_output += ev.output
+            elif ev.content and ev.content.parts:
+                for part in ev.content.parts:
+                    if part.text:
+                        subagent_output += part.text
             
         # 3. Intercept directives and map to client actions
         try:

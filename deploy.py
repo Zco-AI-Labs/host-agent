@@ -93,7 +93,8 @@ print(f"Packaged files/directories (extra_packages): {extra_packages}")
 reasoning_engine = reasoning_engines.ReasoningEngine.create(
     agent_app,
     requirements=[
-        "google-adk",
+        "google-adk[a2a]",
+        "a2a-sdk",
         "google-cloud-aiplatform",
         "google-cloud-firestore",
         "cloudpickle==3.0.0",
@@ -115,7 +116,8 @@ try:
     print(f"\n🧹 Cleaning up older {display_name} deployments on GCP matching UUID {agent_uuid}...")
     all_engines = reasoning_engines.ReasoningEngine.list()
     for engine in all_engines:
-        engine_desc = getattr(engine, "description", "") or ""
+        gca_res = getattr(engine, "gca_resource", None)
+        engine_desc = getattr(gca_res, "description", "") or ""
         if uuid_token in engine_desc and engine.resource_name != reasoning_engine.resource_name:
             print(f"Deleting stale engine instance: {engine.resource_name}...")
             engine.delete()

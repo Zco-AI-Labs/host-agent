@@ -55,8 +55,26 @@ class HostAgent:
     async def query(self, question: str, context: dict = None) -> str:
         runtime_dir = os.path.dirname(os.path.abspath(__file__))
         
+        # --- A2A JSON-RPC WRAPPING PARSER ---
+        parsed_question = question
+        try:
+            payload = json.loads(question)
+            if isinstance(payload, dict) and payload.get("jsonrpc") == "2.0":
+                method = payload.get("method")
+                if method in ("message/send", "message.send"):
+                    params = payload.get("params") or {}
+                    message = params.get("message") or {}
+                    parts = message.get("parts") or []
+                    text_parts = [p.get("text", "") for p in parts if "text" in p]
+                    if text_parts:
+                        parsed_question = "\n".join(text_parts)
+                elif "params" in payload and isinstance(payload["params"], dict):
+                    parsed_question = payload["params"].get("query") or payload["params"].get("message") or question
+        except Exception:
+            pass
+        
         # --- DEBUG HOOK ---
-        if question == "debug_env":
+        if parsed_question == "debug_env" or question == "debug_env":
             files = []
             for root, dirs, ffiles in os.walk(runtime_dir):
                 for f in ffiles:
@@ -66,9 +84,9 @@ class HostAgent:
 
         import hubscape_adk
         import uuid
-        user_id = (context or {}).get("userId") or "anonymous_user"
-        org_id = (context or {}).get("orgId")
-        hub_id = (context or {}).get("hubId")
+        user_id = (context or {}).get("userId") or (context or {}).get("user_id") or "anonymous_user"
+        org_id = (context or {}).get("orgId") or (context or {}).get("org_id")
+        hub_id = (context or {}).get("hubId") or (context or {}).get("hub_id")
         
         # Calculate stable host-agent UUID
         agent_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/Zco-AI-Labs/host-agent"))
@@ -133,7 +151,7 @@ class HostAgent:
                 print(f"⚠️ Non-critical: Failed to restore session trajectory: {restore_err}")
 
             new_message = types.Content(
-                parts=[types.Part.from_text(text=question)]
+                parts=[types.Part.from_text(text=parsed_question)]
             )
             
             text_response = ""
