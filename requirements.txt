@@ -1,5 +1,5 @@
 google-adk[a2a]
-a2a-sdk
+a2a-sdk[http-server]
 google-cloud-aiplatform
 google-cloud-firestore
 cloudpickle==3.0.0
