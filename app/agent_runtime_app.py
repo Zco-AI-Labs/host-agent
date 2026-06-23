@@ -36,6 +36,14 @@ from app.app_utils.typing import Feedback
 # Load environment variables from .env file at runtime
 load_dotenv()
 
+# Initialize Vertex AI at module level before creating the agent runtime app
+# to ensure initializer.global_config.project is populated, preventing a TypeError
+# in A2aAgent.__init__ inside clean container environments.
+vertexai.init(
+    project=os.getenv("PROJECT_ID") or os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT") or "hubscape-geap",
+    location=os.getenv("LOCATION") or os.getenv("GCP_LOCATION") or os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1"
+)
+
 
 class AgentEngineApp(A2aAgent):
     @staticmethod

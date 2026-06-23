@@ -11,6 +11,10 @@ from google.adk.runners import Runner
 from google.genai import types
 
 def load_local_tools(scripts_dir: str) -> list:
+    import sys
+    app_dir = os.path.dirname(os.path.abspath(scripts_dir))
+    if app_dir not in sys.path:
+        sys.path.insert(0, app_dir)
     tools = []
     if not os.path.exists(scripts_dir):
         return tools
