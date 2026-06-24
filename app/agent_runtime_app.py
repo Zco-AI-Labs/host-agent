@@ -108,6 +108,7 @@ class AgentEngineApp(AdkApp):
             credentials.refresh(Request())
             token = credentials.token
             res += f"Token refreshed successfully. Length: {len(token) if token else 0}\n"
+            res += f"Credentials Class: {credentials.__class__.__name__}\n"
             
             # Inspect token via tokeninfo
             try:
@@ -116,9 +117,21 @@ class AgentEngineApp(AdkApp):
             except Exception as token_err:
                 res += f"Failed to get token info: {token_err}\n"
                 
-            # Attempt card fetch
+            # Attempt metadata server fetch
+            meta_token = None
+            try:
+                meta_url = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
+                meta_resp = httpx.get(meta_url, headers={"Metadata-Flavor": "Google"})
+                res += f"Metadata Server Status: {meta_resp.status_code}\nMetadata Server Response: {meta_resp.text[:300]}\n"
+                if meta_resp.status_code == 200:
+                    meta_token = meta_resp.json().get("access_token")
+            except Exception as meta_err:
+                res += f"Metadata Server Failed: {meta_err}\n"
+                
+            # Attempt card fetch using metadata server token if available, otherwise fallback
+            active_token = meta_token if meta_token else token
             card_url = "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/1097730318341/locations/us-central1/reasoningEngines/7101814323281920000/a2a/v1/card"
-            headers = {"Authorization": f"Bearer {token}"}
+            headers = {"Authorization": f"Bearer {active_token}"}
             try:
                 card_resp = httpx.get(card_url, headers=headers)
                 res += f"Card Fetch Status: {card_resp.status_code}\nCard Response: {card_resp.text[:300]}\n"
