@@ -28,17 +28,10 @@ class VertexGemini(Gemini):
         if loop not in self._clients_by_loop:
             project = os.getenv("GOOGLE_CLOUD_PROJECT") or "hubscape-geap"
             location = os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1"
-            try:
-                credentials, _ = google.auth.default(
-                    scopes=["https://www.googleapis.com/auth/cloud-platform"]
-                )
-            except Exception:
-                credentials = None
             self._clients_by_loop[loop] = Client(
                 vertexai=True,
                 project=project,
-                location=location,
-                credentials=credentials
+                location=location
             )
             
         return self._clients_by_loop[loop]
@@ -66,20 +59,12 @@ class VertexGemini(Gemini):
         if loop not in self._live_clients_by_loop:
             project = os.getenv("GOOGLE_CLOUD_PROJECT") or "hubscape-geap"
             location = os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1"
-            try:
-                credentials, _ = google.auth.default(
-                    scopes=["https://www.googleapis.com/auth/cloud-platform"]
-                )
-            except Exception:
-                credentials = None
-                
             base_url, _ = self._base_url_and_api_version
             
             self._live_clients_by_loop[loop] = Client(
                 vertexai=True,
                 project=project,
                 location=location,
-                credentials=credentials,
                 http_options=types.HttpOptions(
                     headers=self._tracking_headers(),
                     api_version=self._live_api_version,

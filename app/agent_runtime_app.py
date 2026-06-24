@@ -36,8 +36,6 @@ class AgentEngineApp(AdkApp):
         # Explicitly pop GOOGLE_GENAI_USE_ENTERPRISE and set GOOGLE_GENAI_USE_VERTEXAI to force regional Vertex AI routing
         os.environ.pop("GOOGLE_GENAI_USE_ENTERPRISE", None)
         os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
-        # Force metadata server credentials by popping SPIFFE certificate config
-        os.environ.pop("GOOGLE_API_CERTIFICATE_CONFIG", None)
         if gemini_location:
             os.environ["GOOGLE_CLOUD_LOCATION"] = gemini_location
         vertexai.init()
