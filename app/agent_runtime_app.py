@@ -18,12 +18,33 @@ app_dir = os.path.dirname(os.path.abspath(__file__))
 if app_dir not in sys.path:
     sys.path.insert(0, app_dir)
 
-# Extract pyopenssl immediately at module load time to prevent context mutation errors
+# Extract pyopenssl and monkeypatch PyOpenSSLContext immediately to prevent context mutation errors
 try:
     from urllib3.contrib import pyopenssl
     pyopenssl.extract_from_urllib3()
+    
+    from urllib3.contrib.pyopenssl import PyOpenSSLContext
+    def make_safe(func):
+        if not func: return func
+        def safe_func(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except ValueError as e:
+                if "cannot be mutated again" in str(e): return None
+                raise
+        return safe_func
+        
+    for prop_name in ["verify_mode", "verify_flags", "options", "minimum_version", "maximum_version"]:
+        prop = getattr(PyOpenSSLContext, prop_name, None)
+        if prop and prop.fset:
+            setattr(PyOpenSSLContext, prop_name, property(prop.fget, make_safe(prop.fset), prop.fdel))
+    for method_name in ["load_cert_chain", "load_verify_locations", "set_ciphers", "set_alpn_protocols", "set_default_verify_paths"]:
+        method = getattr(PyOpenSSLContext, method_name, None)
+        if method:
+            setattr(PyOpenSSLContext, method_name, make_safe(method))
 except Exception:
     pass
+
 
 
 import logging
