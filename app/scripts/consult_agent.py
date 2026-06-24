@@ -103,10 +103,15 @@ async def consultAgent(agentId: str, query: str) -> str:
         if not valid_name[0].isalpha() and valid_name[0] != '_':
             valid_name = '_' + valid_name
 
+        # Ensure agent_card points to the card endpoint (/v1/card)
+        card_url = a2a_url
+        if not card_url.endswith("/v1/card"):
+            card_url = card_url.rstrip("/") + "/v1/card"
+
         # Instantiate the Remote A2A Agent using the ADK Client
         subagent = RemoteA2aAgent(
             name=valid_name,
-            agent_card=a2a_url,
+            agent_card=card_url,
             httpx_client=httpx_client,
             a2a_request_meta_provider=request_meta_provider
         )
