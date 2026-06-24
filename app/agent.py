@@ -96,9 +96,8 @@ class HostAgent:
         
         # Calculate stable host-agent UUID
         agent_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/Zco-AI-Labs/host-agent"))
-        project_id = os.getenv("PROJECT_ID") or os.getenv("GCP_PROJECT_ID")
-        if not project_id:
-            raise KeyError("Environment variable PROJECT_ID or GCP_PROJECT_ID is required but not set.")
+        from app.app_utils.env_resolver import get_project_id
+        project_id = get_project_id()
         
         remote_ctx = hubscape_adk.RemoteContext(
             user_id=user_id, 

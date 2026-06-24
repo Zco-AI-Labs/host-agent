@@ -34,12 +34,9 @@ class VertexGemini(Gemini):
                 del self._clients_by_loop[lp]
                 
         if loop not in self._clients_by_loop:
-            project = os.getenv("GOOGLE_CLOUD_PROJECT")
-            if not project:
-                raise KeyError("Environment variable GOOGLE_CLOUD_PROJECT is required but not set.")
-            location = os.getenv("GOOGLE_CLOUD_LOCATION")
-            if not location:
-                raise KeyError("Environment variable GOOGLE_CLOUD_LOCATION is required but not set.")
+            from app.app_utils.env_resolver import get_project_id, get_region
+            project = get_project_id()
+            location = get_region()
             self._clients_by_loop[loop] = Client(
                 vertexai=True,
                 project=project,
@@ -69,12 +66,9 @@ class VertexGemini(Gemini):
                 del self._live_clients_by_loop[lp]
                 
         if loop not in self._live_clients_by_loop:
-            project = os.getenv("GOOGLE_CLOUD_PROJECT")
-            if not project:
-                raise KeyError("Environment variable GOOGLE_CLOUD_PROJECT is required but not set.")
-            location = os.getenv("GOOGLE_CLOUD_LOCATION")
-            if not location:
-                raise KeyError("Environment variable GOOGLE_CLOUD_LOCATION is required but not set.")
+            from app.app_utils.env_resolver import get_project_id, get_region
+            project = get_project_id()
+            location = get_region()
             base_url, _ = self._base_url_and_api_version
             
             self._live_clients_by_loop[loop] = Client(
