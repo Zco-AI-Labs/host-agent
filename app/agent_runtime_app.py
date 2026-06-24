@@ -61,6 +61,12 @@ class AgentEngineApp(AdkApp):
             token_info = f"Token present: {bool(credentials.token)}"
             if credentials.token:
                 token_info += f" (length: {len(credentials.token)}, starts with: {credentials.token[:10]})"
+                try:
+                    import requests
+                    tinfo_res = requests.get(f"https://oauth2.googleapis.com/tokeninfo?access_token={credentials.token}").json()
+                    token_info += f"\nToken Info Details: {tinfo_res}"
+                except Exception as t_err:
+                    token_info += f"\nFailed to query tokeninfo: {t_err}"
         except Exception as e:
             token_info = f"Failed to load credentials: {e}"
 
