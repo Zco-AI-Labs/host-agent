@@ -94,6 +94,44 @@ class AgentEngineApp(AdkApp):
             res += f"  {k}: {v}\n"
         return res
 
+    def test_token_access(self) -> str:
+        import google.auth
+        from google.auth.transport.requests import Request
+        import httpx
+        import json
+        
+        res = ""
+        try:
+            credentials, project = google.auth.default(
+                scopes=['https://www.googleapis.com/auth/cloud-platform']
+            )
+            credentials.refresh(Request())
+            token = credentials.token
+            res += f"Token refreshed successfully. Length: {len(token) if token else 0}\n"
+            
+            # Inspect token via tokeninfo
+            try:
+                info_resp = httpx.get(f"https://oauth2.googleapis.com/tokeninfo?access_token={token}")
+                res += f"Tokeninfo Status: {info_resp.status_code}\nTokeninfo: {info_resp.text}\n"
+            except Exception as token_err:
+                res += f"Failed to get token info: {token_err}\n"
+                
+            # Attempt card fetch
+            card_url = "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/1097730318341/locations/us-central1/reasoningEngines/7101814323281920000/a2a/v1/card"
+            headers = {"Authorization": f"Bearer {token}"}
+            try:
+                card_resp = httpx.get(card_url, headers=headers)
+                res += f"Card Fetch Status: {card_resp.status_code}\nCard Response: {card_resp.text[:300]}\n"
+            except Exception as card_err:
+                res += f"Failed to fetch card: {card_err}\n"
+                
+        except Exception as e:
+            res += f"Error: {e}\n"
+            import traceback
+            res += traceback.format_exc()
+            
+        return res
+
     def register_feedback(self, feedback: dict[str, Any]) -> None:
         """Collect and log feedback."""
         feedback_obj = Feedback.model_validate(feedback)
@@ -310,7 +348,7 @@ class AgentEngineApp(AdkApp):
     def register_operations(self) -> dict[str, list[str]]:
         """Registers the operations of the Agent."""
         operations = super().register_operations()
-        operations[""] = [*operations.get("", []), "register_feedback", "inspect_env", "query"]
+        operations[""] = [*operations.get("", []), "register_feedback", "inspect_env", "test_token_access", "query"]
         return operations
 
     def clone(self) -> "AgentEngineApp":
