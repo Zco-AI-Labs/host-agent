@@ -82,10 +82,23 @@ class AgentEngineApp(AdkApp):
             try:
                 import asyncio
                 import httpx
+                import requests
                 from unittest.mock import patch
                 from google.genai import Client
                 
-                # Mock sync send
+                # Mock requests send (sync)
+                real_requests_send = requests.Session.send
+                def mock_requests_send(self_session, request, *args, **kwargs):
+                    headers_dict = dict(request.headers)
+                    auth = headers_dict.get("Authorization") or headers_dict.get("authorization")
+                    if auth:
+                        headers_dict["Authorization"] = f"Bearer ya29... (len={len(auth)}, starts={auth[:25]})"
+                    else:
+                        headers_dict["Authorization"] = "MISSING"
+                    print(f"[SYNC REQ (requests)] {request.method} {request.url}\n  Headers: {headers_dict}")
+                    return real_requests_send(self_session, request, *args, **kwargs)
+                
+                # Mock httpx sync send
                 real_sync_send = httpx.Client.send
                 def mock_sync_send(self_client, request, *args, **kwargs):
                     headers_dict = dict(request.headers)
@@ -94,10 +107,10 @@ class AgentEngineApp(AdkApp):
                         headers_dict["authorization"] = f"Bearer ya29... (len={len(auth)}, starts={auth[:25]})"
                     else:
                         headers_dict["authorization"] = "MISSING"
-                    print(f"[SYNC REQ] {request.method} {request.url}\n  Headers: {headers_dict}")
+                    print(f"[SYNC REQ (httpx)] {request.method} {request.url}\n  Headers: {headers_dict}")
                     return real_sync_send(self_client, request, *args, **kwargs)
                     
-                # Mock async send
+                # Mock httpx async send
                 real_async_send = httpx.AsyncClient.send
                 async def mock_async_send(self_client, request, *args, **kwargs):
                     headers_dict = dict(request.headers)
@@ -112,7 +125,17 @@ class AgentEngineApp(AdkApp):
                 proj_id = os.getenv("GOOGLE_CLOUD_PROJECT") or "hubscape-geap"
                 loc = os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1"
                 
-                with patch("httpx.Client.send", new=mock_sync_send), patch("httpx.AsyncClient.send", new=mock_async_send):
+                patches = [
+                    patch("requests.Session.send", new=mock_requests_send),
+                    patch("httpx.Client.send", new=mock_sync_send),
+                    patch("httpx.AsyncClient.send", new=mock_async_send)
+                ]
+                
+                # Apply all patches
+                for p in patches:
+                    p.start()
+                    
+                try:
                     client = Client(vertexai=True, project=proj_id, location=loc)
                     print(f"Client: vertexai=True, project={proj_id}, location={loc}")
                     
@@ -142,6 +165,12 @@ class AgentEngineApp(AdkApp):
                         print(f"  [ASYNC] SUCCESS: {resp.text[:30]}...")
                     except Exception as e:
                         print(f"  [ASYNC] FAILED: {e.__class__.__name__}: {e}")
+                finally:
+                    for p in patches:
+                        try:
+                            p.stop()
+                        except Exception:
+                            pass
                         
             except Exception as global_err:
                 print(f"Global Test Error: {global_err}")
