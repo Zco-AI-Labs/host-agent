@@ -13,7 +13,7 @@
 # limitations under the License.
 import logging
 import os
-from typing import Any
+from typing import Any, Optional, Dict, List, Union
 
 import vertexai
 from dotenv import load_dotenv
