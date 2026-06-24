@@ -84,6 +84,30 @@ class AgentEngineApp(AdkApp):
         feedback_obj = Feedback.model_validate(feedback)
         self.logger.log_struct(feedback_obj.model_dump(), severity="INFO")
 
+    def stream_query(self, *, message, user_id: str, session_id=None, run_config=None, **kwargs):
+        """Override to strip unsupported 'context' kwarg from Hubscape backend before delegating to Runner."""
+        kwargs.pop("context", None)
+        yield from super().stream_query(
+            message=message,
+            user_id=user_id,
+            session_id=session_id,
+            run_config=run_config,
+            **kwargs,
+        )
+
+    async def async_stream_query(self, *, message, user_id: str, session_id=None, session_events=None, run_config=None, **kwargs):
+        """Override to strip unsupported 'context' kwarg from Hubscape backend before delegating to Runner."""
+        kwargs.pop("context", None)
+        async for event in super().async_stream_query(
+            message=message,
+            user_id=user_id,
+            session_id=session_id,
+            session_events=session_events,
+            run_config=run_config,
+            **kwargs,
+        ):
+            yield event
+
     def register_operations(self) -> dict[str, list[str]]:
         """Registers the operations of the Agent."""
         operations = super().register_operations()
