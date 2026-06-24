@@ -111,8 +111,12 @@ class AgentEngineApp(AdkApp):
         direct_call_status = ""
         try:
             from google.genai import Client
-            proj_id = os.getenv("GOOGLE_CLOUD_PROJECT") or "hubscape-geap"
-            loc = os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1"
+            proj_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+            if not proj_id:
+                raise KeyError("Environment variable GOOGLE_CLOUD_PROJECT is required but not set.")
+            loc = os.getenv("GOOGLE_CLOUD_LOCATION")
+            if not loc:
+                raise KeyError("Environment variable GOOGLE_CLOUD_LOCATION is required but not set.")
             client = Client(vertexai=True, project=proj_id, location=loc)
             resp = client.models.generate_content(model="gemini-2.5-flash", contents="Hi")
             direct_call_status = f"SUCCESS: {resp.text[:30]}..."
@@ -219,7 +223,9 @@ class AgentEngineApp(AdkApp):
         hub_id = (context or {}).get("hubId") or (context or {}).get("hub_id")
         
         agent_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/Zco-AI-Labs/host-agent"))
-        project_id = os.getenv("PROJECT_ID") or os.getenv("GCP_PROJECT_ID") or "hubscape-geap"
+        project_id = os.getenv("PROJECT_ID") or os.getenv("GCP_PROJECT_ID")
+        if not project_id:
+            raise KeyError("Environment variable PROJECT_ID or GCP_PROJECT_ID is required but not set.")
         
         remote_ctx = hubscape_adk.RemoteContext(
             user_id=user_id_resolved,
@@ -323,7 +329,9 @@ class AgentEngineApp(AdkApp):
         hub_id = (context or {}).get("hubId") or (context or {}).get("hub_id")
         
         agent_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/Zco-AI-Labs/host-agent"))
-        project_id = os.getenv("PROJECT_ID") or os.getenv("GCP_PROJECT_ID") or "hubscape-geap"
+        project_id = os.getenv("PROJECT_ID") or os.getenv("GCP_PROJECT_ID")
+        if not project_id:
+            raise KeyError("Environment variable PROJECT_ID or GCP_PROJECT_ID is required but not set.")
         
         remote_ctx = hubscape_adk.RemoteContext(
             user_id=user_id_resolved,
