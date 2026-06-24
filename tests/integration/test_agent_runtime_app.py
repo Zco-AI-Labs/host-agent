@@ -87,3 +87,14 @@ def test_agent_feedback(agent_app: AgentEngineApp) -> None:
         agent_app.register_feedback(invalid_feedback)
 
     logging.info("All assertions passed for agent feedback test")
+
+
+def test_agent_query(agent_app: AgentEngineApp) -> None:
+    """
+    Integration test for the synchronous/non-streaming query functionality.
+    Tests that the agent returns a valid response.
+    """
+    message = "Hi!"
+    response = agent_app.query(message)
+    assert isinstance(response, str)
+    assert len(response) > 0
