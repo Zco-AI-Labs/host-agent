@@ -33,6 +33,11 @@ load_dotenv()
 class AgentEngineApp(AdkApp):
     def set_up(self) -> None:
         """Initialize the agent engine app with logging and telemetry."""
+        # Explicitly pop GOOGLE_GENAI_USE_ENTERPRISE and set GOOGLE_GENAI_USE_VERTEXAI to force regional Vertex AI routing
+        os.environ.pop("GOOGLE_GENAI_USE_ENTERPRISE", None)
+        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
+        if gemini_location:
+            os.environ["GOOGLE_CLOUD_LOCATION"] = gemini_location
         vertexai.init()
         setup_telemetry()
         super().set_up()
@@ -40,14 +45,9 @@ class AgentEngineApp(AdkApp):
             self._tmpl_attrs["runner"].auto_create_session = True
         if "in_memory_runner" in self._tmpl_attrs:
             self._tmpl_attrs["in_memory_runner"].auto_create_session = True
-        # Explicitly pop GOOGLE_GENAI_USE_ENTERPRISE and set GOOGLE_GENAI_USE_VERTEXAI to force regional Vertex AI routing
-        os.environ.pop("GOOGLE_GENAI_USE_ENTERPRISE", None)
-        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
         logging.basicConfig(level=logging.INFO)
         logging_client = google_cloud_logging.Client()
         self.logger = logging_client.logger(__name__)
-        if gemini_location:
-            os.environ["GOOGLE_CLOUD_LOCATION"] = gemini_location
 
     def inspect_env(self) -> str:
         """Inspects environment and credentials."""
