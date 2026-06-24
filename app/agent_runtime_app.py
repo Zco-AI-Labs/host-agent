@@ -119,9 +119,8 @@ class AgentEngineApp(AdkApp):
         else:
             return asyncio.run(run_query())
 
-    def stream_query(self, *, message, user_id: str, session_id=None, run_config=None, **kwargs):
+    def stream_query(self, *, message, user_id: str, session_id=None, run_config=None, context: Optional[dict] = None, **kwargs):
         """Override to initialize RemoteContext, load trajectory, and inject dynamic system instructions."""
-        context = kwargs.pop("context", None)
         
         import uuid
         import asyncio
@@ -221,9 +220,8 @@ class AgentEngineApp(AdkApp):
             except Exception as save_err:
                 print(f"⚠️ Non-critical: Failed to save session trajectory: {save_err}")
 
-    async def async_stream_query(self, *, message, user_id: str, session_id=None, session_events=None, run_config=None, **kwargs):
+    async def async_stream_query(self, *, message, user_id: str, session_id=None, session_events=None, run_config=None, context: Optional[dict] = None, **kwargs):
         """Override to initialize RemoteContext, load trajectory, and inject dynamic system instructions."""
-        context = kwargs.pop("context", None)
         
         import uuid
         import hubscape_adk
