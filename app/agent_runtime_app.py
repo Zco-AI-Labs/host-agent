@@ -50,10 +50,11 @@ class AgentEngineApp(AdkApp):
         self.logger = logging_client.logger(__name__)
 
     def inspect_env(self) -> str:
-        """Inspects environment and credentials."""
+        """Inspects environment, credentials, and attempts a direct Gemini call."""
+        import traceback
+        import sys
+        
         try:
-            # Force GCE credentials
-            os.environ.pop("GOOGLE_API_CERTIFICATE_CONFIG", None)
             import google.auth
             credentials, project = google.auth.default(
                 scopes=['https://www.googleapis.com/auth/cloud-platform']
@@ -72,21 +73,32 @@ class AgentEngineApp(AdkApp):
         except Exception as e:
             token_info = f"Failed to load credentials: {e}"
 
+        direct_call_status = "Not attempted"
+        try:
+            from google.genai import Client
+            proj_id = os.getenv("GOOGLE_CLOUD_PROJECT") or "hubscape-geap"
+            loc = os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1"
+            
+            client = Client(vertexai=True, project=proj_id, location=loc)
+            direct_call_status = f"Client initialized: vertexai=True, project={proj_id}, location={loc}\n"
+            direct_call_status += f"Client Base URL: {client.models._api_client._http_options.base_url}\n"
+            
+            # Attempt sync call
+            resp = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents="Hi"
+            )
+            direct_call_status += f"Direct Call Success! Response: {resp.text}"
+        except Exception as call_err:
+            tb = traceback.format_exc()
+            direct_call_status += f"Direct Call Failed: {call_err.__class__.__name__}: {call_err}\nTraceback:\n{tb}"
+
         env_vars = {k: v for k, v in os.environ.items() if not k.endswith("KEY") and "PASSWORD" not in k and "SECRET" not in k}
         
-        import sys
         res = f"Python Executable: {sys.executable}\n"
-        res += f"Python Path: {sys.path}\n"
-        try:
-            dir_path = os.path.dirname(os.path.abspath(__file__))
-            agent_path = os.path.join(dir_path, "agent.py")
-            with open(agent_path, "r") as f:
-                agent_lines = [f.readline() for _ in range(30)]
-            res += "--- agent.py Contents ---\n" + "".join(agent_lines) + "-------------------------\n"
-        except Exception as read_err:
-            res += f"Failed to read agent.py: {read_err}\n"
         res += f"Project: {project}\n"
         res += f"Token Info: {token_info}\n"
+        res += f"Direct Call Status:\n{direct_call_status}\n"
         res += f"Environment Variables:\n"
         for k, v in env_vars.items():
             res += f"  {k}: {v}\n"
