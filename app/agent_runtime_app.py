@@ -36,6 +36,10 @@ class AgentEngineApp(AdkApp):
         vertexai.init()
         setup_telemetry()
         super().set_up()
+        if "runner" in self._tmpl_attrs:
+            self._tmpl_attrs["runner"].auto_create_session = True
+        if "in_memory_runner" in self._tmpl_attrs:
+            self._tmpl_attrs["in_memory_runner"].auto_create_session = True
         # Explicitly pop GOOGLE_GENAI_USE_ENTERPRISE to force regional Vertex AI routing
         os.environ.pop("GOOGLE_GENAI_USE_ENTERPRISE", None)
         logging.basicConfig(level=logging.INFO)
@@ -147,7 +151,7 @@ class AgentEngineApp(AdkApp):
                     
                     # Inject loaded session into session service cache
                     session_service = self._tmpl_attrs.get("session_service")
-                    app_name = session_obj.app_name
+                    app_name = self.app.name
                     uid = session_obj.user_id
                     sid = session_obj.id
                     
@@ -176,7 +180,7 @@ class AgentEngineApp(AdkApp):
                 session_service = self._tmpl_attrs.get("session_service")
                 async def fetch_session():
                     return await session_service.get_session(
-                        app_name='host-agent',
+                        app_name=self.app.name,
                         user_id=user_id_resolved,
                         session_id=session_id_resolved
                     )
@@ -247,7 +251,7 @@ class AgentEngineApp(AdkApp):
                     
                     # Inject loaded session into session service cache
                     session_service = self._tmpl_attrs.get("session_service")
-                    app_name = session_obj.app_name
+                    app_name = self.app.name
                     uid = session_obj.user_id
                     sid = session_obj.id
                     
@@ -276,7 +280,7 @@ class AgentEngineApp(AdkApp):
             try:
                 session_service = self._tmpl_attrs.get("session_service")
                 updated_session = await session_service.get_session(
-                    app_name='host-agent',
+                    app_name=self.app.name,
                     user_id=user_id_resolved,
                     session_id=session_id_resolved
                 )
