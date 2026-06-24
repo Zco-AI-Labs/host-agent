@@ -11,8 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import logging
+import sys
 import os
+# Ensure standard imports share the same module instance
+app_dir = os.path.dirname(os.path.abspath(__file__))
+if app_dir not in sys.path:
+    sys.path.insert(0, app_dir)
+
+import logging
 from typing import Any, Optional, Dict, List, Union
 
 import vertexai
@@ -120,7 +126,7 @@ class AgentEngineApp(AdkApp):
         import uuid
         import asyncio
         import concurrent.futures
-        from app import hubscape_adk
+        import hubscape_adk
         from app.agent import root_agent
         
         user_id_resolved = (context or {}).get("userId") or (context or {}).get("user_id") or user_id or "anonymous_user"
@@ -220,7 +226,7 @@ class AgentEngineApp(AdkApp):
         context = kwargs.pop("context", None)
         
         import uuid
-        from app import hubscape_adk
+        import hubscape_adk
         from app.agent import root_agent
         
         user_id_resolved = (context or {}).get("userId") or (context or {}).get("user_id") or user_id or "anonymous_user"

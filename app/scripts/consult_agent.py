@@ -58,6 +58,8 @@ async def consultAgent(agentId: str, query: str) -> str:
                 if len(parts) > 3:
                     location = parts[3]
             a2a_url = f"https://{location}-aiplatform.googleapis.com/v1/{resource_name}"
+            if target_agent.get("type") == "A2A":
+                a2a_url = f"{a2a_url}/a2a"
             
         if not a2a_url:
             return f"Error: Agent '{agentId}' does not have a valid A2A URL or remote resource name."
