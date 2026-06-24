@@ -35,7 +35,23 @@ class RemoteContext:
     @property
     def _db_client(self):
         if self._db is None:
-            self._db = firestore.Client(project=self.project_id)
+            # Try to get OAuth2 token from Metadata Server
+            token = None
+            try:
+                import httpx as httpx_sync
+                meta_url = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
+                resp = httpx_sync.get(meta_url, headers={"Metadata-Flavor": "Google"}, timeout=2.0)
+                if resp.status_code == 200:
+                    token = resp.json().get("access_token")
+            except Exception:
+                pass
+
+            if token:
+                from google.oauth2.credentials import Credentials as OAuth2Credentials
+                creds = OAuth2Credentials(token)
+                self._db = firestore.Client(project=self.project_id, credentials=creds)
+            else:
+                self._db = firestore.Client(project=self.project_id)
         return self._db
 
     def get_agent_db_path(self, scope: str, collection_name: str, doc_id: Optional[str] = None) -> str:
