@@ -74,54 +74,79 @@ class AgentEngineApp(AdkApp):
             token_info = f"Failed to load credentials: {e}"
 
         direct_call_status = ""
-        try:
-            import asyncio
-            from google.genai import Client
-            proj_id = os.getenv("GOOGLE_CLOUD_PROJECT") or "hubscape-geap"
-            loc = os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1"
-            proj_num = os.getenv("GOOGLE_CLOUD_QUOTA_PROJECT") or "1097730318341"
-            
-            client = Client(vertexai=True, project=proj_id, location=loc)
-            direct_call_status += f"Client: vertexai=True, project={proj_id}, location={loc}\n"
-            direct_call_status += f"Client Base URL: {client.models._api_client._http_options.base_url}\n"
-            
-            models_to_test = [
-                "gemini-2.5-flash",
-                f"projects/{proj_id}/locations/{loc}/publishers/google/models/gemini-2.5-flash",
-                f"projects/{proj_num}/locations/{loc}/publishers/google/models/gemini-2.5-flash"
-            ]
-            
-            for m in models_to_test:
-                # 1. Test sync call
-                try:
-                    resp = client.models.generate_content(model=m, contents="Hi")
-                    direct_call_status += f"  [SYNC] model='{m}': SUCCESS ({resp.text[:30]}...)\n"
-                except Exception as e:
-                    direct_call_status += f"  [SYNC] model='{m}': FAILED: {e.__class__.__name__}: {e}\n"
+        import io
+        import contextlib
+        
+        f = io.StringIO()
+        with contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+            try:
+                import asyncio
+                import httpx
+                from unittest.mock import patch
+                from google.genai import Client
                 
-                # 2. Test async call
-                try:
-                    async def run_async_test():
-                        return await client.aio.models.generate_content(model=m, contents="Hi")
-                    
-                    try:
-                        loop = asyncio.get_running_loop()
-                    except RuntimeError:
-                        loop = None
-                        
-                    if loop and loop.is_running():
-                        import concurrent.futures
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                            resp = executor.submit(lambda: asyncio.run(run_async_test())).result()
+                # Mock sync send
+                real_sync_send = httpx.Client.send
+                def mock_sync_send(self_client, request, *args, **kwargs):
+                    headers_dict = dict(request.headers)
+                    auth = headers_dict.get("authorization")
+                    if auth:
+                        headers_dict["authorization"] = f"Bearer ya29... (len={len(auth)}, starts={auth[:25]})"
                     else:
-                        resp = asyncio.run(run_async_test())
-                        
-                    direct_call_status += f"  [ASYNC] model='{m}': SUCCESS ({resp.text[:30]}...)\n"
-                except Exception as e:
-                    direct_call_status += f"  [ASYNC] model='{m}': FAILED: {e.__class__.__name__}: {e}\n"
+                        headers_dict["authorization"] = "MISSING"
+                    print(f"[SYNC REQ] {request.method} {request.url}\n  Headers: {headers_dict}")
+                    return real_sync_send(self_client, request, *args, **kwargs)
                     
-        except Exception as global_err:
-            direct_call_status += f"Test Setup Error: {global_err}\n"
+                # Mock async send
+                real_async_send = httpx.AsyncClient.send
+                async def mock_async_send(self_client, request, *args, **kwargs):
+                    headers_dict = dict(request.headers)
+                    auth = headers_dict.get("authorization")
+                    if auth:
+                        headers_dict["authorization"] = f"Bearer ya29... (len={len(auth)}, starts={auth[:25]})"
+                    else:
+                        headers_dict["authorization"] = "MISSING"
+                    print(f"[ASYNC REQ] {request.method} {request.url}\n  Headers: {headers_dict}")
+                    return await real_async_send(self_client, request, *args, **kwargs)
+                
+                proj_id = os.getenv("GOOGLE_CLOUD_PROJECT") or "hubscape-geap"
+                loc = os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1"
+                
+                with patch("httpx.Client.send", new=mock_sync_send), patch("httpx.AsyncClient.send", new=mock_async_send):
+                    client = Client(vertexai=True, project=proj_id, location=loc)
+                    print(f"Client: vertexai=True, project={proj_id}, location={loc}")
+                    
+                    # Test sync
+                    try:
+                        resp = client.models.generate_content(model="gemini-2.5-flash", contents="Hi")
+                        print(f"  [SYNC] SUCCESS: {resp.text[:30]}...")
+                    except Exception as e:
+                        print(f"  [SYNC] FAILED: {e.__class__.__name__}: {e}")
+                        
+                    # Test async
+                    async def run_async_test():
+                        return await client.aio.models.generate_content(model="gemini-2.5-flash", contents="Hi")
+                        
+                    try:
+                        try:
+                            loop = asyncio.get_running_loop()
+                        except RuntimeError:
+                            loop = None
+                            
+                        if loop and loop.is_running():
+                            import concurrent.futures
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                                resp = executor.submit(lambda: asyncio.run(run_async_test())).result()
+                        else:
+                            resp = asyncio.run(run_async_test())
+                        print(f"  [ASYNC] SUCCESS: {resp.text[:30]}...")
+                    except Exception as e:
+                        print(f"  [ASYNC] FAILED: {e.__class__.__name__}: {e}")
+                        
+            except Exception as global_err:
+                print(f"Global Test Error: {global_err}")
+                
+        direct_call_status = f.getvalue()
 
         env_vars = {k: v for k, v in os.environ.items() if not k.endswith("KEY") and "PASSWORD" not in k and "SECRET" not in k}
         
