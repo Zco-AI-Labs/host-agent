@@ -109,6 +109,7 @@ async def consultAgent(agentId: str, query: str) -> str:
                 "org_id": ctx.auth.org_id,
                 "hubId": ctx.auth.hub_id,
                 "hub_id": ctx.auth.hub_id,
+                "mode": raw_ctx.get("mode"),
                 "accessible_agents": accessible_agents,
                 "depth": current_depth + 1
             }

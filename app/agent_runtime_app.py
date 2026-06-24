@@ -39,6 +39,12 @@ load_dotenv()
 class AgentEngineApp(AdkApp):
     def set_up(self) -> None:
         """Initialize the agent engine app with logging and telemetry."""
+        # Undo any pyOpenSSL monkeypatching in urllib3 to avoid connection reuse error
+        try:
+            from urllib3.contrib import pyopenssl
+            pyopenssl.extract_from_urllib3()
+        except Exception:
+            pass
         # Explicitly pop GOOGLE_GENAI_USE_ENTERPRISE and set GOOGLE_GENAI_USE_VERTEXAI to force regional Vertex AI routing
         os.environ.pop("GOOGLE_GENAI_USE_ENTERPRISE", None)
         os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
@@ -236,6 +242,11 @@ class AgentEngineApp(AdkApp):
                 **kwargs,
             )
 
+            # Yield custom actions if any were collected
+            actions = getattr(remote_ctx, "actions", [])
+            if actions:
+                yield {"actions": actions}
+
             # Retrieve updated session state and persist back to Firestore
             try:
                 session_service = self._tmpl_attrs.get("session_service")
@@ -335,6 +346,11 @@ class AgentEngineApp(AdkApp):
                 **kwargs,
             ):
                 yield event
+
+            # Yield custom actions if any were collected
+            actions = getattr(remote_ctx, "actions", [])
+            if actions:
+                yield {"actions": actions}
 
             # Retrieve updated session state and persist back to Firestore
             try:
