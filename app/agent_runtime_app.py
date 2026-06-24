@@ -18,6 +18,14 @@ app_dir = os.path.dirname(os.path.abspath(__file__))
 if app_dir not in sys.path:
     sys.path.insert(0, app_dir)
 
+# Extract pyopenssl immediately at module load time to prevent context mutation errors
+try:
+    from urllib3.contrib import pyopenssl
+    pyopenssl.extract_from_urllib3()
+except Exception:
+    pass
+
+
 import logging
 from typing import Any, Optional, Dict, List, Union
 
