@@ -162,7 +162,7 @@ class AgentEngineApp(AdkApp):
                     
                     # Inject loaded session into session service cache
                     session_service = self._tmpl_attrs.get("session_service")
-                    app_name = self.app.name
+                    app_name = adk_app.name
                     uid = session_obj.user_id
                     sid = session_obj.id
                     
@@ -191,7 +191,7 @@ class AgentEngineApp(AdkApp):
                 session_service = self._tmpl_attrs.get("session_service")
                 async def fetch_session():
                     return await session_service.get_session(
-                        app_name=self.app.name,
+                        app_name=adk_app.name,
                         user_id=user_id_resolved,
                         session_id=session_id_resolved
                     )
@@ -262,7 +262,7 @@ class AgentEngineApp(AdkApp):
                     
                     # Inject loaded session into session service cache
                     session_service = self._tmpl_attrs.get("session_service")
-                    app_name = self.app.name
+                    app_name = adk_app.name
                     uid = session_obj.user_id
                     sid = session_obj.id
                     
@@ -291,7 +291,7 @@ class AgentEngineApp(AdkApp):
             try:
                 session_service = self._tmpl_attrs.get("session_service")
                 updated_session = await session_service.get_session(
-                    app_name=self.app.name,
+                    app_name=adk_app.name,
                     user_id=user_id_resolved,
                     session_id=session_id_resolved
                 )

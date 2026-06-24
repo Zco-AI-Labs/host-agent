@@ -5,6 +5,7 @@ from typing import Generator, Optional
 from google.cloud import firestore
 
 _current_context = contextvars.ContextVar("hubscape_context")
+_global_active_context = None
 
 class RemoteAuth:
     def __init__(self, user_id: str, org_id: str = None, hub_id: str = None):
@@ -167,6 +168,9 @@ def get_context() -> RemoteContext:
     try:
         return _current_context.get()
     except LookupError:
+        global _global_active_context
+        if _global_active_context is not None:
+            return _global_active_context
         raise RuntimeError(
             "No active RemoteContext found. "
             "Ensure the tool is executed inside an active context_session."
@@ -174,10 +178,14 @@ def get_context() -> RemoteContext:
 
 @contextlib.contextmanager
 def context_session(context: RemoteContext) -> Generator[None, None, None]:
+    global _global_active_context
+    old_global = _global_active_context
+    _global_active_context = context
     token = _current_context.set(context)
     try:
         yield
     finally:
+        _global_active_context = old_global
         try:
             _current_context.reset(token)
         except ValueError:
