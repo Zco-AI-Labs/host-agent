@@ -2,6 +2,7 @@ import os
 # Force Developer API (Enterprise) mode ONLY if running locally and not in GCP/Vertex AI
 if os.getenv("GOOGLE_CLOUD_AGENT_ENGINE_ID") or os.getenv("K_SERVICE"):
     os.environ.pop("GOOGLE_GENAI_USE_ENTERPRISE", None)
+    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
 elif not os.getenv("GEMINI_API_KEY"):
     os.environ["GOOGLE_GENAI_USE_ENTERPRISE"] = "True"
 import asyncio

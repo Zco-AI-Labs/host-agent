@@ -40,8 +40,9 @@ class AgentEngineApp(AdkApp):
             self._tmpl_attrs["runner"].auto_create_session = True
         if "in_memory_runner" in self._tmpl_attrs:
             self._tmpl_attrs["in_memory_runner"].auto_create_session = True
-        # Explicitly pop GOOGLE_GENAI_USE_ENTERPRISE to force regional Vertex AI routing
+        # Explicitly pop GOOGLE_GENAI_USE_ENTERPRISE and set GOOGLE_GENAI_USE_VERTEXAI to force regional Vertex AI routing
         os.environ.pop("GOOGLE_GENAI_USE_ENTERPRISE", None)
+        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
         logging.basicConfig(level=logging.INFO)
         logging_client = google_cloud_logging.Client()
         self.logger = logging_client.logger(__name__)
