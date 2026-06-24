@@ -68,12 +68,28 @@ async def consultAgent(agentId: str, query: str) -> str:
             return f"Error: Agent '{agentId}' does not have a valid A2A URL or remote resource name."
             
         # 2. Get GCP access token
-        credentials, project_id = google.auth.default(
-            scopes=["https://www.googleapis.com/auth/cloud-platform"]
-        )
-        auth_req = google.auth.transport.requests.Request()
-        credentials.refresh(auth_req)
-        token = credentials.token
+        def get_gcp_access_token() -> str:
+            import httpx as httpx_sync
+            # Try to fetch from the local metadata server (correct for remote container)
+            try:
+                meta_url = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
+                resp = httpx_sync.get(meta_url, headers={"Metadata-Flavor": "Google"}, timeout=2.0)
+                if resp.status_code == 200:
+                    tok = resp.json().get("access_token")
+                    if tok:
+                        return tok
+            except Exception:
+                pass
+
+            # Fallback to google.auth.default (correct for local development)
+            credentials, _ = google.auth.default(
+                scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            auth_req = google.auth.transport.requests.Request()
+            credentials.refresh(auth_req)
+            return credentials.token
+
+        token = get_gcp_access_token()
         
         headers = {
             "Authorization": f"Bearer {token}",
