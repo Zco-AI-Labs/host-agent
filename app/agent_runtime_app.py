@@ -73,25 +73,55 @@ class AgentEngineApp(AdkApp):
         except Exception as e:
             token_info = f"Failed to load credentials: {e}"
 
-        direct_call_status = "Not attempted"
+        direct_call_status = ""
         try:
+            import asyncio
             from google.genai import Client
             proj_id = os.getenv("GOOGLE_CLOUD_PROJECT") or "hubscape-geap"
             loc = os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1"
+            proj_num = os.getenv("GOOGLE_CLOUD_QUOTA_PROJECT") or "1097730318341"
             
             client = Client(vertexai=True, project=proj_id, location=loc)
-            direct_call_status = f"Client initialized: vertexai=True, project={proj_id}, location={loc}\n"
+            direct_call_status += f"Client: vertexai=True, project={proj_id}, location={loc}\n"
             direct_call_status += f"Client Base URL: {client.models._api_client._http_options.base_url}\n"
             
-            # Attempt sync call
-            resp = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents="Hi"
-            )
-            direct_call_status += f"Direct Call Success! Response: {resp.text}"
-        except Exception as call_err:
-            tb = traceback.format_exc()
-            direct_call_status += f"Direct Call Failed: {call_err.__class__.__name__}: {call_err}\nTraceback:\n{tb}"
+            models_to_test = [
+                "gemini-2.5-flash",
+                f"projects/{proj_id}/locations/{loc}/publishers/google/models/gemini-2.5-flash",
+                f"projects/{proj_num}/locations/{loc}/publishers/google/models/gemini-2.5-flash"
+            ]
+            
+            for m in models_to_test:
+                # 1. Test sync call
+                try:
+                    resp = client.models.generate_content(model=m, contents="Hi")
+                    direct_call_status += f"  [SYNC] model='{m}': SUCCESS ({resp.text[:30]}...)\n"
+                except Exception as e:
+                    direct_call_status += f"  [SYNC] model='{m}': FAILED: {e.__class__.__name__}: {e}\n"
+                
+                # 2. Test async call
+                try:
+                    async def run_async_test():
+                        return await client.aio.models.generate_content(model=m, contents="Hi")
+                    
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        loop = None
+                        
+                    if loop and loop.is_running():
+                        import concurrent.futures
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                            resp = executor.submit(lambda: asyncio.run(run_async_test())).result()
+                    else:
+                        resp = asyncio.run(run_async_test())
+                        
+                    direct_call_status += f"  [ASYNC] model='{m}': SUCCESS ({resp.text[:30]}...)\n"
+                except Exception as e:
+                    direct_call_status += f"  [ASYNC] model='{m}': FAILED: {e.__class__.__name__}: {e}\n"
+                    
+        except Exception as global_err:
+            direct_call_status += f"Test Setup Error: {global_err}\n"
 
         env_vars = {k: v for k, v in os.environ.items() if not k.endswith("KEY") and "PASSWORD" not in k and "SECRET" not in k}
         
