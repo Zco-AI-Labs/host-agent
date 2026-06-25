@@ -35,23 +35,28 @@ class RemoteContext:
     @property
     def _db_client(self):
         if self._db is None:
-            # Try to get OAuth2 token from Metadata Server
-            token = None
+            # Let Firestore Client automatically resolve credentials via google.auth.default
+            # (which handles Workload Identity correctly in GEAP and ADC locally)
             try:
-                import httpx as httpx_sync
-                meta_url = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
-                resp = httpx_sync.get(meta_url, headers={"Metadata-Flavor": "Google"}, timeout=2.0)
-                if resp.status_code == 200:
-                    token = resp.json().get("access_token")
-            except Exception:
-                pass
-
-            if token:
-                from google.oauth2.credentials import Credentials as OAuth2Credentials
-                creds = OAuth2Credentials(token)
-                self._db = firestore.Client(project=self.project_id, credentials=creds)
-            else:
                 self._db = firestore.Client(project=self.project_id)
+            except Exception as e:
+                # Fallback to metadata server token if automatic resolution fails
+                token = None
+                try:
+                    import httpx as httpx_sync
+                    meta_url = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
+                    resp = httpx_sync.get(meta_url, headers={"Metadata-Flavor": "Google"}, timeout=2.0)
+                    if resp.status_code == 200:
+                        token = resp.json().get("access_token")
+                except Exception:
+                    pass
+
+                if token:
+                    from google.oauth2.credentials import Credentials as OAuth2Credentials
+                    creds = OAuth2Credentials(token)
+                    self._db = firestore.Client(project=self.project_id, credentials=creds)
+                else:
+                    raise e
         return self._db
 
     def get_agent_db_path(self, scope: str, collection_name: str, doc_id: Optional[str] = None) -> str:
