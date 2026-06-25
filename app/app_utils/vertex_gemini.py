@@ -96,6 +96,8 @@ class VertexGemini(Gemini):
         This forces use of the synchronous 'requests'-based Client, which correctly
         leverages Mutual TLS (mTLS) in Vertex AI Reasoning Engine / Workload Identity.
         """
+        os.environ.pop("GEMINI_API_KEY", None)
+        os.environ.pop("GOOGLE_API_KEY", None)
         await self._preprocess_request(llm_request)
         self._maybe_append_user_content(llm_request)
 
