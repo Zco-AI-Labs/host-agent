@@ -69,21 +69,9 @@ async def consultAgent(agentId: str, query: str) -> str:
             
         # 2. Get GCP access token
         def get_gcp_access_token() -> str:
-            # Try google.auth.default first (correctly handles Workload Identity credentials in GEAP)
+            import httpx as httpx_sync
+            # Try to fetch from the local metadata server (correct for remote container)
             try:
-                credentials, _ = google.auth.default(
-                    scopes=["https://www.googleapis.com/auth/cloud-platform"]
-                )
-                auth_req = google.auth.transport.requests.Request()
-                credentials.refresh(auth_req)
-                if credentials.token:
-                    return credentials.token
-            except Exception as auth_err:
-                logger.warning(f"google.auth.default failed: {auth_err}. Falling back to metadata server.")
-
-            # Fallback to direct metadata server call if google.auth.default fails
-            try:
-                import httpx as httpx_sync
                 meta_url = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
                 resp = httpx_sync.get(meta_url, headers={"Metadata-Flavor": "Google"}, timeout=2.0)
                 if resp.status_code == 200:
@@ -93,7 +81,13 @@ async def consultAgent(agentId: str, query: str) -> str:
             except Exception:
                 pass
 
-            raise RuntimeError("Failed to retrieve GCP access token from both google.auth.default and metadata server.")
+            # Fallback to google.auth.default (correct for local development)
+            credentials, _ = google.auth.default(
+                scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            auth_req = google.auth.transport.requests.Request()
+            credentials.refresh(auth_req)
+            return credentials.token
 
         token = get_gcp_access_token()
         
