@@ -2,6 +2,8 @@ import os
 # Force regional Vertex AI routing unconditionally
 os.environ.pop("GOOGLE_GENAI_USE_ENTERPRISE", None)
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
+os.environ.pop("GEMINI_API_KEY", None)
+os.environ.pop("GOOGLE_API_KEY", None)
 import asyncio
 import importlib.util
 import re
