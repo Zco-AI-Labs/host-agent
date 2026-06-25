@@ -37,6 +37,8 @@ class VertexGemini(Gemini):
             from app.app_utils.env_resolver import get_project_id, get_region
             project = get_project_id()
             location = get_region()
+            os.environ.pop("GEMINI_API_KEY", None)
+            os.environ.pop("GOOGLE_API_KEY", None)
             self._clients_by_loop[loop] = Client(
                 vertexai=True,
                 project=project,
@@ -71,6 +73,8 @@ class VertexGemini(Gemini):
             location = get_region()
             base_url, _ = self._base_url_and_api_version
             
+            os.environ.pop("GEMINI_API_KEY", None)
+            os.environ.pop("GOOGLE_API_KEY", None)
             self._live_clients_by_loop[loop] = Client(
                 vertexai=True,
                 project=project,
