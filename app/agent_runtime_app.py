@@ -208,6 +208,32 @@ class AgentEngineApp(AdkApp):
 
     def stream_query(self, *, message, user_id: str, session_id=None, run_config=None, context: Optional[dict] = None, **kwargs):
         """Override to initialize RemoteContext, load trajectory, and inject dynamic system instructions."""
+        # --- FAST-PATH ACTION INTERCEPTOR ---
+        if message and message.startswith("/action switchHub"):
+            parts = message.split(" ", 2)
+            if len(parts) >= 2:
+                action_payload = {}
+                if len(parts) == 3:
+                    try:
+                        import json
+                        action_payload = json.loads(parts[2])
+                    except Exception:
+                        pass
+                target_hub = action_payload.get("hubId")
+                if target_hub:
+                    yield {
+                        "content": {
+                            "parts": [{"text": f"Switching context to hub: {target_hub}"}]
+                        },
+                        "actions": [{
+                            "type": "SWITCH_HUB",
+                            "payload": {
+                                "hubId": target_hub
+                            }
+                        }]
+                    }
+                    return
+        
         
         import uuid
         import asyncio
@@ -315,6 +341,32 @@ class AgentEngineApp(AdkApp):
 
     async def async_stream_query(self, *, message, user_id: str, session_id=None, session_events=None, run_config=None, context: Optional[dict] = None, **kwargs):
         """Override to initialize RemoteContext, load trajectory, and inject dynamic system instructions."""
+        # --- FAST-PATH ACTION INTERCEPTOR ---
+        if message and message.startswith("/action switchHub"):
+            parts = message.split(" ", 2)
+            if len(parts) >= 2:
+                action_payload = {}
+                if len(parts) == 3:
+                    try:
+                        import json
+                        action_payload = json.loads(parts[2])
+                    except Exception:
+                        pass
+                target_hub = action_payload.get("hubId")
+                if target_hub:
+                    yield {
+                        "content": {
+                            "parts": [{"text": f"Switching context to hub: {target_hub}"}]
+                        },
+                        "actions": [{
+                            "type": "SWITCH_HUB",
+                            "payload": {
+                                "hubId": target_hub
+                            }
+                        }]
+                    }
+                    return
+        
         
         import uuid
         import hubscape_adk
