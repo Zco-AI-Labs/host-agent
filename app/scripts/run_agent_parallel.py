@@ -89,6 +89,15 @@ async def run_agent_parallel(requests: list) -> dict:
             if not a2a_url:
                 return agent_id, f"Error: Agent '{agent_id}' does not have a valid A2A URL."
                 
+            # Ensure we use v1beta1 routing for A2A card resolution and predict queries
+            card_url = a2a_url
+            if "/v1/" in card_url:
+                card_url = card_url.replace("/v1/", "/v1beta1/")
+            if "/a2a" not in card_url:
+                card_url = card_url.rstrip("/") + "/a2a"
+            if not card_url.endswith("/v1/card"):
+                card_url = card_url.rstrip("/") + "/v1/card"
+                
             try:
                 # Request metadata provider to securely propagate RBAC context and increment call depth
                 def request_meta_provider(invocation_context, a2a_message):
@@ -105,7 +114,7 @@ async def run_agent_parallel(requests: list) -> dict:
 
                 subagent = RemoteA2aAgent(
                     name=agent_id,
-                    agent_card=a2a_url,
+                    agent_card=card_url,
                     httpx_client=httpx_client,
                     a2a_request_meta_provider=request_meta_provider
                 )
