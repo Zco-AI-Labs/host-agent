@@ -89,7 +89,9 @@ async def run_agent_parallel(requests: list) -> dict:
             if not a2a_url:
                 return agent_id, f"Error: Agent '{agent_id}' does not have a valid A2A URL."
                 
-            # Ensure we use v1beta1 routing for A2A card resolution and predict queries
+            # NOTE: Using v1beta1 specifically for the A2A handshake gateway because 
+            # Vertex AI Reasoning Engine's A2A routing endpoints (e.g. /a2a/v1/card)
+            # are not exposed on the GA /v1/ endpoints (returning a 404 Not Found).
             card_url = a2a_url
             if "/v1/" in card_url:
                 card_url = card_url.replace("/v1/", "/v1beta1/")
