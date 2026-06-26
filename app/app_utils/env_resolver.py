@@ -13,12 +13,13 @@ def get_project_id() -> str:
     # 2. Try google.auth.default()
     try:
         _, project = google.auth.default()
-        if project:
+        if project and not project.startswith("agents-global") and "system.id.goog" not in project:
             return project
     except Exception:
         pass
         
-    raise KeyError("Could not automatically resolve Google Cloud Project ID. Please set PROJECT_ID or GOOGLE_CLOUD_PROJECT.")
+    # Default fallback to staging project ID
+    return "hubscape-geap"
 
 def get_region() -> str:
     # 1. Try environment variables
