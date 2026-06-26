@@ -119,7 +119,8 @@ async def consultAgent(agentId: str, query: str) -> str:
                 "hub_id": ctx.auth.hub_id,
                 "mode": raw_ctx.get("mode"),
                 "accessible_agents": accessible_agents,
-                "depth": current_depth + 1
+                "depth": current_depth + 1,
+                "backend_url": raw_ctx.get("backend_url")
             }
 
         # Normalize the agent ID to a valid Python identifier
