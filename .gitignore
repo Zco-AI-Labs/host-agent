@@ -206,4 +206,6 @@ tools/a2a-inspector/
 deployment_metadata.json
 
 # Local debug scratchpad
+scratch/
 .scratch/
+
