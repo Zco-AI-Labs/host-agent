@@ -57,12 +57,9 @@ async def consultAgent(agentId: str, query: str) -> str:
                 parts = resource_name.split("/")
                 if len(parts) > 3:
                     location = parts[3]
-            a2a_url = f"https://{location}-aiplatform.googleapis.com/v1beta1/{resource_name}"
+            a2a_url = f"https://{location}-aiplatform.googleapis.com/v1/{resource_name}"
             if target_agent.get("type") == "A2A":
                 a2a_url = f"{a2a_url}/a2a"
-            
-        if a2a_url and "/v1/" in a2a_url:
-            a2a_url = a2a_url.replace("/v1/", "/v1beta1/")
             
         if not a2a_url:
             return f"Error: Agent '{agentId}' does not have a valid A2A URL or remote resource name."
@@ -120,15 +117,10 @@ async def consultAgent(agentId: str, query: str) -> str:
         if not valid_name[0].isalpha() and valid_name[0] != '_':
             valid_name = '_' + valid_name
 
-        # Ensure agent_card points to the card endpoint (/v1/card)
-        card_url = a2a_url
-        if not card_url.endswith("/v1/card"):
-            card_url = card_url.rstrip("/") + "/v1/card"
-
         # Instantiate the Remote A2A Agent using the ADK Client
         subagent = RemoteA2aAgent(
             name=valid_name,
-            agent_card=card_url,
+            agent_card=a2a_url,
             httpx_client=httpx_client,
             a2a_request_meta_provider=request_meta_provider
         )
