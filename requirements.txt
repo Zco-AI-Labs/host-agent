@@ -1,2 +1,2 @@
-google-agents-cli
+google-agents-cli==0.5.1
 uv
