@@ -112,6 +112,29 @@ class HostAgent:
         
         # Resolve session ID
         session_id = (context or {}).get("sessionId") or f"session_{user_id}_{hub_id}"
+
+        # --- FAST-PATH ACTION INTERCEPTOR ---
+        if parsed_question.startswith("/action switchHub"):
+            parts = parsed_question.split(" ", 2)
+            if len(parts) >= 2:
+                action_payload = {}
+                if len(parts) == 3:
+                    try:
+                        action_payload = json.loads(parts[2])
+                    except Exception:
+                        pass
+                target_hub = action_payload.get("hubId")
+                if target_hub:
+                    remote_ctx.actions.append({
+                        "type": "SWITCH_HUB",
+                        "payload": {
+                            "hubId": target_hub
+                        }
+                    })
+                    return json.dumps({
+                        "text": f"Switching context to hub: {target_hub}",
+                        "actions": remote_ctx.actions
+                    })
         
         # 1. Resolve dynamic system instructions from context
         system_instruction = (context or {}).get("system_instruction") or "You are the Hubscape central Host agent."
