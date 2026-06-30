@@ -470,7 +470,9 @@ class AgentEngineApp(AdkApp):
             "tools": []
         }
         from app.agent import app as adk_app
-        for tool_name, tool_obj in adk_app.tools.items():
+        tools_list = adk_app.root_agent.tools if hasattr(adk_app, "root_agent") and hasattr(adk_app.root_agent, "tools") else []
+        for tool_obj in tools_list:
+            tool_name = getattr(tool_obj, "__name__", str(tool_obj))
             card_dict["tools"].append({
                 "name": tool_name,
                 "description": tool_obj.__doc__ or ""
