@@ -12,6 +12,7 @@ from google.adk.agents.invocation_context import InvocationContext
 
 logger = logging.getLogger(__name__)
 
+@hubscape_adk.require_tool_privilege
 async def consultAgent(agentId: str, query: str) -> str:
     """
     Consults a specialized subagent (e.g. todo_agent, knowledge_agent, admin_ui_agent).
@@ -120,7 +121,8 @@ async def consultAgent(agentId: str, query: str) -> str:
                 "mode": raw_ctx.get("mode"),
                 "accessible_agents": accessible_agents,
                 "depth": current_depth + 1,
-                "backend_url": raw_ctx.get("backend_url")
+                "backend_url": raw_ctx.get("backend_url"),
+                "capability_token": raw_ctx.get("capability_token")
             }
 
         # Normalize the agent ID to a valid Python identifier

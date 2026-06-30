@@ -1,5 +1,6 @@
 import hubscape_adk
 
+@hubscape_adk.require_tool_privilege
 def suggestQueries(queries: list[str]) -> dict:
     """
     Renders interactive suggestion bubbles in the client user interface for ambiguity resolution.

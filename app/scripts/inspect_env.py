@@ -1,6 +1,8 @@
 import os
 import sys
+import hubscape_adk
 
+@hubscape_adk.require_tool_privilege
 def inspect_env() -> str:
     """Inspected the environment variables and credentials inside the container.
     

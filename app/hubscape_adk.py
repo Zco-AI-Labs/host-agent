@@ -206,3 +206,92 @@ def context_session(context: RemoteContext) -> Generator[None, None, None]:
             _current_context.reset(token)
         except ValueError:
             pass
+
+import functools
+import inspect
+import os
+import json
+import logging
+import jwt
+from cryptography.fernet import Fernet
+
+def require_tool_privilege(func):
+    """
+    Decorator for agent python tools to enforce zero-trust tool-level RBAC.
+    Supports both synchronous and asynchronous functions.
+    """
+    is_async = inspect.iscoroutinefunction(func)
+
+    def verify_privilege():
+        context = get_context()
+        
+        # Check Developer Bypass
+        secret_key = os.environ.get("HUBSCAPE_HMAC_SECRET")
+        if not secret_key:
+            logging.getLogger(__name__).warning(
+                f"⚠️ Developer Bypass Active: Tool '{func.__name__}' executed without JWT check."
+            )
+            return True
+            
+        token = context.raw_context.get("capability_token")
+        if not token:
+            raise PermissionError(f"Security Block: Access denied to tool '{func.__name__}'. Missing capability token.")
+            
+        try:
+            # Decode & Verify JWT HMAC
+            payload = jwt.decode(token, secret_key, algorithms=["HS256"])
+            
+            # Context Pinning Checks
+            token_user_id = payload.get("sub")
+            metadata_user_id = context.auth.get_user_id()
+            if token_user_id != metadata_user_id:
+                raise PermissionError("Security Block: User ID mismatch between request and capability token.")
+                
+            token_hub_id = payload.get("hub_id")
+            metadata_hub_id = context.auth.hub_id
+            if token_hub_id != metadata_hub_id:
+                raise PermissionError("Security Block: Hub ID mismatch between request and capability token.")
+                
+            # Derive Fernet key dynamically from master secret
+            import base64
+            import hashlib
+            hasher = hashlib.sha256()
+            hasher.update(secret_key.encode())
+            hasher.update(context.agent_id.encode())
+            derived_key = base64.urlsafe_b64encode(hasher.digest()).decode()
+            
+            encrypted_capabilities = payload.get("capabilities", {})
+            encrypted_segment = encrypted_capabilities.get(context.agent_id)
+            
+            if not encrypted_segment:
+                raise PermissionError(f"Security Block: Agent '{context.agent_id}' is not authorized in this session passport.")
+                
+            try:
+                fernet = Fernet(derived_key.encode())
+                decrypted_bytes = fernet.decrypt(encrypted_segment.encode())
+                allowed_tools = json.loads(decrypted_bytes.decode())
+            except Exception as decrypt_err:
+                raise PermissionError(f"Security Block: Failed to decrypt capabilities: {decrypt_err}")
+                
+            if func.__name__ not in allowed_tools:
+                raise PermissionError(f"Security Block: Tool '{func.__name__}' is not allowed for this agent. Allowed: {allowed_tools}")
+                
+            return True
+            
+        except jwt.ExpiredSignatureError:
+            raise PermissionError("Security Block: Capability token has expired.")
+        except jwt.InvalidTokenError as jwt_err:
+            raise PermissionError(f"Security Block: Invalid capability token: {jwt_err}")
+
+    if is_async:
+        @functools.wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            verify_privilege()
+            return await func(*args, **kwargs)
+        return async_wrapper
+    else:
+        @functools.wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            verify_privilege()
+            return func(*args, **kwargs)
+        return sync_wrapper

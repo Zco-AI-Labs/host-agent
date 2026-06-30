@@ -458,10 +458,29 @@ class AgentEngineApp(AdkApp):
             except Exception as save_err:
                 print(f"⚠️ Non-critical: Failed to save session trajectory: {save_err}")
 
+    def get_agent_card(self) -> dict:
+        """
+        [NEW] Returns the metadata card of the agent and all its tools.
+        Used by the platform Host core during GitOps deploys or sync sweeps.
+        """
+        card_dict = {
+            "name": self.agent_card.name if hasattr(self.agent_card, 'name') else "host-agent",
+            "description": self.agent_card.description if hasattr(self.agent_card, 'description') else "Host orchestrator agent.",
+            "version": self.agent_card.agent_version if hasattr(self.agent_card, 'agent_version') else "0.1.0",
+            "tools": []
+        }
+        from app.agent import app as adk_app
+        for tool_name, tool_obj in adk_app.tools.items():
+            card_dict["tools"].append({
+                "name": tool_name,
+                "description": tool_obj.__doc__ or ""
+            })
+        return card_dict
+
     def register_operations(self) -> dict[str, list[str]]:
         """Registers the operations of the Agent."""
         operations = super().register_operations()
-        operations[""] = [*operations.get("", []), "register_feedback", "inspect_env", "test_token_access", "query"]
+        operations[""] = [*operations.get("", []), "register_feedback", "inspect_env", "test_token_access", "query", "get_agent_card"]
         return operations
 
     def clone(self) -> "AgentEngineApp":

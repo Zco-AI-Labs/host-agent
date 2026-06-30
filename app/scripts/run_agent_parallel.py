@@ -12,6 +12,7 @@ from google.adk.agents.invocation_context import InvocationContext
 
 logger = logging.getLogger(__name__)
 
+@hubscape_adk.require_tool_privilege
 async def run_agent_parallel(requests: list) -> dict:
     """
     Executes queries to multiple specialized subagents in parallel.
@@ -111,7 +112,8 @@ async def run_agent_parallel(requests: list) -> dict:
                         "hubId": ctx.auth.hub_id,
                         "hub_id": ctx.auth.hub_id,
                         "accessible_agents": accessible_agents,
-                        "depth": current_depth + 1
+                        "depth": current_depth + 1,
+                        "capability_token": raw_ctx.get("capability_token")
                     }
 
                 subagent = RemoteA2aAgent(
