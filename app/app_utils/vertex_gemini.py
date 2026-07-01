@@ -39,10 +39,15 @@ class VertexGemini(Gemini):
             location = get_region()
             os.environ.pop("GEMINI_API_KEY", None)
             os.environ.pop("GOOGLE_API_KEY", None)
+            
+            import google.auth
+            credentials, _ = google.auth.default()
+            
             self._clients_by_loop[loop] = Client(
                 vertexai=True,
                 project=project,
-                location=location
+                location=location,
+                credentials=credentials
             )
             
         return self._clients_by_loop[loop]
@@ -75,10 +80,15 @@ class VertexGemini(Gemini):
             
             os.environ.pop("GEMINI_API_KEY", None)
             os.environ.pop("GOOGLE_API_KEY", None)
+            
+            import google.auth
+            credentials, _ = google.auth.default()
+            
             self._live_clients_by_loop[loop] = Client(
                 vertexai=True,
                 project=project,
                 location=location,
+                credentials=credentials,
                 http_options=types.HttpOptions(
                     headers=self._tracking_headers(),
                     api_version=self._live_api_version,
