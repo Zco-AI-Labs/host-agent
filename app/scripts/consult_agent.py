@@ -78,19 +78,7 @@ async def consultAgent(agentId: str, query: str) -> str:
             
         # 2. Get GCP access token
         def get_gcp_access_token() -> str:
-            import httpx as httpx_sync
-            # Try to fetch from the local metadata server (correct for remote container)
-            try:
-                meta_url = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
-                resp = httpx_sync.get(meta_url, headers={"Metadata-Flavor": "Google"}, timeout=2.0)
-                if resp.status_code == 200:
-                    tok = resp.json().get("access_token")
-                    if tok:
-                        return tok
-            except Exception:
-                pass
-
-            # Fallback to google.auth.default (correct for local development)
+            # Natively resolves and exchanges Workload Identity / ADC credentials
             credentials, _ = google.auth.default(
                 scopes=["https://www.googleapis.com/auth/cloud-platform"]
             )
