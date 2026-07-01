@@ -225,17 +225,20 @@ def require_tool_privilege(func):
     def verify_privilege():
         context = get_context()
         
-        # Check Developer Bypass
-        secret_key = os.environ.get("HUBSCAPE_HMAC_SECRET")
-        if not secret_key:
+        token = context.raw_context.get("capability_token")
+        if not token:
+            # If no token is provided, only allow it if we are running locally (no K_SERVICE / AIP_PREDICT_PORT)
+            is_cloud = "K_SERVICE" in os.environ or "AIP_PREDICT_PORT" in os.environ
+            if is_cloud:
+                raise PermissionError(f"Security Block: Access denied to tool '{func.__name__}'. Missing capability token.")
+            
+            # Local Dev/Test Bypass: log warning and allow
             logging.getLogger(__name__).warning(
-                f"⚠️ Developer Bypass Active: Tool '{func.__name__}' executed without JWT check."
+                f"⚠️ Developer Bypass Active: Tool '{func.__name__}' executed locally without JWT check."
             )
             return True
             
-        token = context.raw_context.get("capability_token")
-        if not token:
-            raise PermissionError(f"Security Block: Access denied to tool '{func.__name__}'. Missing capability token.")
+        secret_key = os.environ.get("HUBSCAPE_HMAC_SECRET") or os.environ.get("HUBSCAPE_KMS_MASTER_KEY") or "dev_secret_key_dont_use_in_prod"
             
         try:
             # Decode & Verify JWT HMAC
