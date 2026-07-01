@@ -463,14 +463,15 @@ class AgentEngineApp(AdkApp):
         [NEW] Returns the metadata card of the agent and all its tools.
         Used by the platform Host core during GitOps deploys or sync sweeps.
         """
+        from app.agent import app as adk_app
+        root_agent = getattr(adk_app, "root_agent", None)
         card_dict = {
-            "name": self.agent_card.name if hasattr(self.agent_card, 'name') else "host-agent",
-            "description": self.agent_card.description if hasattr(self.agent_card, 'description') else "Host orchestrator agent.",
-            "version": self.agent_card.agent_version if hasattr(self.agent_card, 'agent_version') else "0.1.0",
+            "name": getattr(root_agent, "name", "host-agent"),
+            "description": getattr(root_agent, "description", "Host orchestrator agent."),
+            "version": "0.1.0",
             "tools": []
         }
-        from app.agent import app as adk_app
-        tools_list = adk_app.root_agent.tools if hasattr(adk_app, "root_agent") and hasattr(adk_app.root_agent, "tools") else []
+        tools_list = root_agent.tools if root_agent and hasattr(root_agent, "tools") else []
         for tool_obj in tools_list:
             tool_name = getattr(tool_obj, "__name__", str(tool_obj))
             card_dict["tools"].append({
