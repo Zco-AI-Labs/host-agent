@@ -18,11 +18,26 @@ if not agents_cli_path:
 if not agents_cli_path:
     agents_cli_path = "agents-cli"
 
+iam_profile = "sa-standard-agent"
+try:
+    from google.cloud import firestore
+    db = firestore.Client(project=PROJECT_ID)
+    docs = db.collection("agents").where("name", "==", display_name).limit(1).stream()
+    doc = next(docs, None)
+    if doc:
+        iam_profile = doc.to_dict().get("iam_profile") or "sa-standard-agent"
+        print(f"ℹ️ Found agent configuration in Firestore. Binding profile: {iam_profile}")
+    else:
+        print(f"ℹ️ Agent not found in Firestore. Defaulting to profile: {iam_profile}")
+except Exception as e:
+    print(f"⚠️ Could not fetch agent profile from Firestore ({e}). Defaulting to profile: {iam_profile}")
+
 cmd = [
     agents_cli_path, "deploy",
     "--project", PROJECT_ID,
     "--region", LOCATION,
     "--service-name", display_name,
+    "--service-account", f"{iam_profile}@{PROJECT_ID}.iam.gserviceaccount.com",
     "--agent-identity",
     "--no-confirm-project"
 ]
