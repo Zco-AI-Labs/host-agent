@@ -547,45 +547,17 @@ class AgentEngineApp(A2aAgent):
         else:
             return asyncio.run(run_query())
 
-    def stream_query(self, *, message, user_id: str, session_id=None, run_config=None, context: Optional[dict] = None, **kwargs):
-        """Streaming query delegation to HostAgent (synchronous generator)."""
-        import asyncio
-        import concurrent.futures
-        
-        async def run_generator():
-            async for chunk in self.async_stream_query(
-                message=message,
-                user_id=user_id,
-                session_id=session_id,
-                run_config=run_config,
-                context=context,
-                **kwargs
-            ):
-                yield chunk
-                
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        def sync_generator_wrapper():
-            loop = asyncio.new_event_loop()
-            async_gen = run_generator()
-            try:
-                while True:
-                    try:
-                        chunk = loop.run_until_complete(async_gen.__anext__())
-                        yield chunk
-                    except StopAsyncIteration:
-                        break
-            finally:
-                loop.close()
-                
-        if loop and loop.is_running():
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                yield from executor.submit(lambda: list(sync_generator_wrapper())).result()
-        else:
-            yield from sync_generator_wrapper()
+    async def stream_query(self, *, message, user_id: str, session_id=None, run_config=None, context: Optional[dict] = None, **kwargs):
+        """Streaming query delegation to HostAgent (async generator)."""
+        async for chunk in self.async_stream_query(
+            message=message,
+            user_id=user_id,
+            session_id=session_id,
+            run_config=run_config,
+            context=context,
+            **kwargs
+        ):
+            yield chunk
 
     async def async_stream_query(self, *, message, user_id: str, session_id=None, session_events=None, run_config=None, context: Optional[dict] = None, **kwargs):
         """Override to initialize RemoteContext, load trajectory, and inject dynamic system instructions for streaming."""
