@@ -20,7 +20,14 @@ if not agents_cli_path:
 
 iam_profile = "sa-standard-agent"
 try:
-    from google.cloud import firestore
+    try:
+        from google.cloud import firestore
+    except ImportError:
+        print("ℹ️ google-cloud-firestore not found. Installing dynamically...")
+        import subprocess
+        subprocess.run([sys.executable, "-m", "pip", "install", "google-cloud-firestore"], check=True)
+        from google.cloud import firestore
+
     db = firestore.Client(project=PROJECT_ID)
     docs = db.collection("agents").where("name", "==", display_name).limit(1).stream()
     doc = next(docs, None)
@@ -38,7 +45,6 @@ cmd = [
     "--region", LOCATION,
     "--service-name", display_name,
     "--service-account", f"{iam_profile}@{PROJECT_ID}.iam.gserviceaccount.com",
-    "--agent-identity",
     "--no-confirm-project"
 ]
 
