@@ -7,7 +7,7 @@ generated_at: "2026-06-23T18:33:43.875242+00:00"
 language: "python"
 create_params:
   deployment_target: "agent_runtime"
-  is_a2a: false
+  is_a2a: true
   session_type: "in_memory"
   cicd_runner: "skip"
   include_data_ingestion: false
