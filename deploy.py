@@ -18,7 +18,7 @@ if not agents_cli_path:
 if not agents_cli_path:
     agents_cli_path = "agents-cli"
 
-iam_profile = None
+iam_profile = "sa-standard-agent"
 try:
     try:
         from google.cloud import firestore
@@ -32,28 +32,21 @@ try:
     docs = db.collection("agents").where("name", "==", display_name).limit(1).stream()
     doc = next(docs, None)
     if doc:
-        iam_profile = doc.to_dict().get("iam_profile")
-        if iam_profile:
-            print(f"ℹ️ Found agent configuration in Firestore. Binding profile: {iam_profile}")
-        else:
-            print("ℹ️ Found agent in Firestore, but iam_profile is not set. Defaulting to AGENT_IDENTITY")
+        iam_profile = doc.to_dict().get("iam_profile") or "sa-standard-agent"
+        print(f"ℹ️ Found agent configuration in Firestore. Binding profile: {iam_profile}")
     else:
-        print("ℹ️ Agent not found in Firestore. Defaulting to AGENT_IDENTITY")
+        print(f"ℹ️ Agent not found in Firestore. Defaulting to profile: {iam_profile}")
 except Exception as e:
-    print(f"⚠️ Could not fetch agent profile from Firestore ({e}). Defaulting to AGENT_IDENTITY")
+    print(f"⚠️ Could not fetch agent profile from Firestore ({e}). Defaulting to profile: {iam_profile}")
 
 cmd = [
     agents_cli_path, "deploy",
     "--project", PROJECT_ID,
     "--region", LOCATION,
     "--service-name", display_name,
+    "--service-account", f"{iam_profile}@{PROJECT_ID}.iam.gserviceaccount.com",
     "--no-confirm-project"
 ]
-
-if iam_profile:
-    cmd.extend(["--service-account", f"{iam_profile}@{PROJECT_ID}.iam.gserviceaccount.com"])
-else:
-    cmd.append("--agent-identity")
 
 env = os.environ.copy()
 venv_bin = os.path.dirname(sys.executable)
