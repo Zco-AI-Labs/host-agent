@@ -18,7 +18,7 @@ app_dir = os.path.dirname(os.path.abspath(__file__))
 if app_dir not in sys.path:
     sys.path.insert(0, app_dir)
 
-# Extract pyopenssl and monkeypatch PyOpenSSLContext immediately to prevent context mutation errors
+# pyopenssl monkeypatching
 try:
     from urllib3.contrib import pyopenssl
     pyopenssl.extract_from_urllib3()
@@ -45,36 +45,385 @@ try:
 except Exception:
     pass
 
-
-
+import asyncio
 import logging
+import concurrent.futures
 from typing import Any, Optional, Dict, List, Union
 
+import nest_asyncio
 import vertexai
 from dotenv import load_dotenv
-from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
-from google.adk.sessions.in_memory_session_service import InMemorySessionService
-from google.cloud import logging as google_cloud_logging
-from vertexai.agent_engines.templates.adk import AdkApp
+from a2a.types import AgentCapabilities, AgentCard, AgentExtension, TransportProtocol
+from a2a.server.agent_execution import RequestContext
+from a2a.server.events.event_queue import EventQueue
 
+from google.adk.a2a.executor.a2a_agent_executor import A2aAgentExecutor
+from google.adk.a2a.utils.agent_card_builder import AgentCardBuilder
+from google.adk.apps import App
+from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+from google.cloud import logging as google_cloud_logging
+from vertexai.preview.reasoning_engines import A2aAgent
+
+import hubscape_adk
 from app.agent import app as adk_app
 from app.app_utils.telemetry import setup_telemetry
 from app.app_utils.typing import Feedback
 
-# Load environment variables from .env file at runtime
 load_dotenv()
 
+class ActionInterceptingEventQueue(EventQueue):
+    def __init__(self, target_queue: EventQueue, remote_context):
+        super().__init__()
+        self.target_queue = target_queue
+        self.remote_context = remote_context
+        self.accumulated_text = ""
+        self.events = []
+        self.final_event = None
+        self.artifact_event = None
 
-class AgentEngineApp(AdkApp):
+    async def enqueue_event(self, event):
+        from a2a.types import TaskStatusUpdateEvent, TaskArtifactUpdateEvent
+        if isinstance(event, TaskStatusUpdateEvent):
+            if event.final:
+                self.final_event = event
+                return
+            
+            # Extract text to accumulate
+            if event.status and event.status.message and event.status.message.parts:
+                for part in event.status.message.parts:
+                    if hasattr(part, "text") and part.text:
+                        self.accumulated_text += part.text
+            
+            self.events.append(event)
+        elif isinstance(event, TaskArtifactUpdateEvent):
+            self.artifact_event = event
+        else:
+            await self.target_queue.enqueue_event(event)
+
+class AgentEngineA2aExecutor(A2aAgentExecutor):
+    """Custom A2A Executor that intercepts requests to inject RemoteContext and handle sessions."""
+    async def execute(
+        self,
+        context: RequestContext,
+        event_queue: EventQueue,
+    ):
+        import json
+        import uuid
+        from datetime import datetime, timezone
+        
+        metadata = context.metadata or {}
+        
+        user_id_resolved = metadata.get("userId") or metadata.get("user_id") or "anonymous_user"
+        org_id = metadata.get("orgId") or metadata.get("org_id")
+        hub_id = metadata.get("hubId") or metadata.get("hub_id")
+        mode = metadata.get("mode") or "none"
+        
+        agent_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/Zco-AI-Labs/host-agent"))
+        from app.app_utils.env_resolver import get_project_id
+        project_id = get_project_id()
+        
+        remote_ctx = hubscape_adk.RemoteContext(
+            user_id=user_id_resolved,
+            agent_id=agent_uuid,
+            org_id=org_id,
+            hub_id=hub_id,
+            project_id=project_id,
+            raw_context=metadata
+        )
+        
+        # --- FAST-PATH ACTION INTERCEPTOR ---
+        message = context.get_user_input()
+        if message and message.startswith("/action switchHub"):
+            parts = message.split(" ", 2)
+            if len(parts) >= 2:
+                action_payload = {}
+                if len(parts) == 3:
+                    try:
+                        action_payload = json.loads(parts[2])
+                    except Exception:
+                        pass
+                target_hub = action_payload.get("hubId")
+                if target_hub:
+                    from a2a.types import TaskStatusUpdateEvent, Message, Role, TextPart, TaskStatus, TaskState, TaskArtifactUpdateEvent, Artifact
+                    
+                    directive_payload = {
+                        "directive": "execute_host_tool",
+                        "target_tool": "switchHub",
+                        "parameters": {
+                            "hubId": target_hub
+                        },
+                        "message": f"Switching context to hub: {target_hub}"
+                    }
+                    json_text = json.dumps(directive_payload)
+                    
+                    new_event = TaskStatusUpdateEvent(
+                        task_id=context.task_id,
+                        status=TaskStatus(
+                            state=TaskState.working,
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            message=Message(
+                                message_id=str(uuid.uuid4()),
+                                role=Role.agent,
+                                parts=[TextPart(text=json_text)]
+                            )
+                        ),
+                        context_id=context.context_id,
+                        final=False
+                    )
+                    await event_queue.enqueue_event(new_event)
+
+                    new_artifact_event = TaskArtifactUpdateEvent(
+                        task_id=context.task_id,
+                        last_chunk=True,
+                        context_id=context.context_id,
+                        artifact=Artifact(
+                            artifact_id=str(uuid.uuid4()),
+                            parts=[TextPart(text=json_text)]
+                        )
+                    )
+                    await event_queue.enqueue_event(new_artifact_event)
+                    return
+
+        interceptor = ActionInterceptingEventQueue(event_queue, remote_ctx)
+        
+        from app.agent import root_agent
+        base_instruction = root_agent.instruction or ""
+        
+        # Check for system_instruction from context/metadata
+        system_instruction = metadata.get("system_instruction")
+        if system_instruction:
+            root_agent.instruction = system_instruction
+            
+        session_id_resolved = metadata.get("sessionId") or f"session_{user_id_resolved}_{hub_id}"
+        
+        # 1. Restore ADK Session from Firestore
+        try:
+            session_doc = remote_ctx.get(scope="user", collection_name="sessions", doc_id=session_id_resolved)
+            if session_doc and "adk_session" in session_doc:
+                adk_session_json = session_doc["adk_session"]
+                from google.adk.sessions import Session
+                session_obj = Session.model_validate_json(adk_session_json)
+                
+                runner = await self._resolve_runner()
+                session_service = runner.session_service
+                app_name = adk_app.name
+                uid = session_obj.user_id
+                sid = session_obj.id
+                
+                if app_name not in session_service.sessions:
+                    session_service.sessions[app_name] = {}
+                if uid not in session_service.sessions[app_name]:
+                    session_service.sessions[app_name][uid] = {}
+                session_service.sessions[app_name][uid][sid] = session_obj
+                print(f"🔄 Resumed ADK GEAP Session: {session_id_resolved}")
+            else:
+                print(f"🌱 Starting New ADK GEAP Session: {session_id_resolved}")
+        except Exception as restore_err:
+            print(f"⚠️ Failed to restore session trajectory: {restore_err}")
+            
+        try:
+            with hubscape_adk.context_session(remote_ctx):
+                await super().execute(context, interceptor)
+        finally:
+            root_agent.instruction = base_instruction
+
+        # 2. Persist ADK Session back to Firestore
+        try:
+            runner = await self._resolve_runner()
+            session_service = runner.session_service
+            updated_session = await session_service.get_session(
+                app_name=adk_app.name,
+                user_id=user_id_resolved,
+                session_id=session_id_resolved
+            )
+            if updated_session:
+                serialized_json = updated_session.model_dump_json()
+                remote_ctx.save(
+                    scope="user",
+                    collection_name="sessions",
+                    doc_id=session_id_resolved,
+                    data={
+                        "adk_session": serialized_json
+                    }
+                )
+                print(f"💾 Persisted ADK GEAP Session trajectory for {session_id_resolved}")
+        except Exception as save_err:
+            print(f"⚠️ Failed to save session trajectory: {save_err}")
+
+        # 3. Propagate Custom Actions
+        has_actions = bool(remote_ctx.actions)
+        if has_actions:
+            directive_payload = {}
+            for action in remote_ctx.actions:
+                atype = action.get("type")
+                payload = action.get("payload") or {}
+                if atype == "OPEN_AGENT_WIDGET":
+                    directive_payload = {
+                        "directive": "execute_host_tool",
+                        "target_tool": "openAgentWidget",
+                        "parameters": {
+                            "widgetId": payload.get("widgetId"),
+                            "widgetConfig": payload.get("widgetConfig"),
+                            "data": payload.get("data") or {},
+                            "styling": payload.get("styling") or {},
+                            "userPreferences": payload.get("userPreferences") or {}
+                        },
+                        "message": interceptor.accumulated_text or "Displaying agent widget."
+                    }
+                    break
+                elif atype == "OPEN_ADMIN_WIDGET":
+                    directive_payload = {
+                        "directive": "execute_host_tool",
+                        "target_tool": "openAdminWidget",
+                        "parameters": {
+                            "widgetType": payload.get("widgetType")
+                        },
+                        "message": interceptor.accumulated_text or "Opening admin widget."
+                    }
+                    break
+                elif atype == "SET_SUGGESTIONS":
+                    directive_payload = {
+                        "directive": "execute_host_tool",
+                        "target_tool": "suggestQueries",
+                        "parameters": {
+                            "queries": action.get("queries") or []
+                        },
+                        "message": interceptor.accumulated_text or ""
+                    }
+                    break
+                elif atype == "SWITCH_HUB":
+                    directive_payload = {
+                        "directive": "execute_host_tool",
+                        "target_tool": "switchHub",
+                        "parameters": {
+                            "hubId": payload.get("hubId")
+                        },
+                        "message": interceptor.accumulated_text or "Switching hub workspace."
+                    }
+                    break
+                elif atype == "OPEN_EXTERNAL_LINK":
+                    directive_payload = {
+                        "directive": "execute_host_tool",
+                        "target_tool": "openExternalLink",
+                        "parameters": {
+                            "url": payload.get("url")
+                        },
+                        "message": interceptor.accumulated_text or "Opening link."
+                    }
+                    break
+                elif atype == "END_CALL":
+                    directive_payload = {
+                        "directive": "execute_host_tool",
+                        "target_tool": "endCall",
+                        "parameters": {},
+                        "message": interceptor.accumulated_text or "Call ended."
+                    }
+                    break
+
+            if directive_payload:
+                from a2a.types import TaskStatusUpdateEvent, Message, Role, TextPart, TaskStatus, TaskState, TaskArtifactUpdateEvent, Artifact
+                
+                json_text = json.dumps(directive_payload)
+                new_event = TaskStatusUpdateEvent(
+                    task_id=context.task_id,
+                    status=TaskStatus(
+                        state=TaskState.working,
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        message=Message(
+                            message_id=str(uuid.uuid4()),
+                            role=Role.agent,
+                            parts=[TextPart(text=json_text)]
+                        )
+                    ),
+                    context_id=context.context_id,
+                    final=False
+                )
+                await event_queue.enqueue_event(new_event)
+
+                new_artifact_event = TaskArtifactUpdateEvent(
+                    task_id=context.task_id,
+                    last_chunk=True,
+                    context_id=context.context_id,
+                    artifact=Artifact(
+                        artifact_id=str(uuid.uuid4()),
+                        parts=[TextPart(text=json_text)]
+                    )
+                )
+                await event_queue.enqueue_event(new_artifact_event)
+            else:
+                for ev in interceptor.events:
+                    await event_queue.enqueue_event(ev)
+                if interceptor.artifact_event:
+                    await event_queue.enqueue_event(interceptor.artifact_event)
+        else:
+            for ev in interceptor.events:
+                await event_queue.enqueue_event(ev)
+            if interceptor.artifact_event:
+                await event_queue.enqueue_event(interceptor.artifact_event)
+
+        if interceptor.final_event:
+            await event_queue.enqueue_event(interceptor.final_event)
+
+class AgentEngineApp(A2aAgent):
+    @staticmethod
+    def create(
+        app: App | None = None,
+        artifact_service: Any = None,
+        session_service: Any = None,
+    ) -> Any:
+        if app is None:
+            app = adk_app
+
+        def create_runner() -> Runner:
+            return Runner(
+                app=app,
+                session_service=session_service,
+                artifact_service=artifact_service,
+            )
+
+        try:
+            asyncio.get_running_loop()
+            nest_asyncio.apply()
+        except RuntimeError:
+            pass
+
+        agent_card = asyncio.run(AgentEngineApp.build_agent_card(app=app))
+
+        return AgentEngineApp(
+            agent_executor_builder=lambda: AgentEngineA2aExecutor(runner=create_runner()),
+            agent_card=agent_card,
+        )
+
+    @staticmethod
+    async def build_agent_card(app: App) -> AgentCard:
+        agent_card_builder = AgentCardBuilder(
+            agent=app.root_agent,
+            capabilities=AgentCapabilities(
+                streaming=False,
+                extensions=[
+                    AgentExtension(
+                        uri="https://google.github.io/adk-docs/a2a/a2a-extension/",
+                        description="Ability to use the new agent executor implementation",
+                    ),
+                ],
+            ),
+            rpc_url="http://localhost:9999/",
+            agent_version=os.getenv("AGENT_VERSION", "0.1.0"),
+        )
+        agent_card = await agent_card_builder.build()
+        agent_card.preferred_transport = TransportProtocol.http_json  # Http Only.
+        agent_card.supports_authenticated_extended_card = True
+        return agent_card
+
     def set_up(self) -> None:
         """Initialize the agent engine app with logging and telemetry."""
-        # Undo any pyOpenSSL monkeypatching in urllib3 to avoid connection reuse error
         try:
             from urllib3.contrib import pyopenssl
             pyopenssl.extract_from_urllib3()
         except Exception:
             pass
-        # Explicitly pop GOOGLE_GENAI_USE_ENTERPRISE and set GOOGLE_GENAI_USE_VERTEXAI to force regional Vertex AI routing
         os.environ.pop("GOOGLE_GENAI_USE_ENTERPRISE", None)
         os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
         if gemini_location:
@@ -82,10 +431,6 @@ class AgentEngineApp(AdkApp):
         vertexai.init()
         setup_telemetry()
         super().set_up()
-        if "runner" in self._tmpl_attrs:
-            self._tmpl_attrs["runner"].auto_create_session = True
-        if "in_memory_runner" in self._tmpl_attrs:
-            self._tmpl_attrs["in_memory_runner"].auto_create_session = True
         logging.basicConfig(level=logging.INFO)
         logging_client = google_cloud_logging.Client()
         self.logger = logging_client.logger(__name__)
@@ -134,7 +479,6 @@ class AgentEngineApp(AdkApp):
         import google.auth
         from google.auth.transport.requests import Request
         import httpx
-        import json
         
         res = ""
         try:
@@ -146,14 +490,12 @@ class AgentEngineApp(AdkApp):
             res += f"Token refreshed successfully. Length: {len(token) if token else 0}\n"
             res += f"Credentials Class: {credentials.__class__.__name__}\n"
             
-            # Inspect token via tokeninfo
             try:
                 info_resp = httpx.get(f"https://oauth2.googleapis.com/tokeninfo?access_token={token}")
                 res += f"Tokeninfo Status: {info_resp.status_code}\nTokeninfo: {info_resp.text}\n"
             except Exception as token_err:
                 res += f"Failed to get token info: {token_err}\n"
                 
-            # Attempt metadata server fetch
             meta_token = None
             try:
                 meta_url = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
@@ -164,7 +506,6 @@ class AgentEngineApp(AdkApp):
             except Exception as meta_err:
                 res += f"Metadata Server Failed: {meta_err}\n"
                 
-            # Attempt card fetch using metadata server token if available, otherwise fallback
             active_token = meta_token if meta_token else token
             card_url = "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/1097730318341/locations/us-central1/reasoningEngines/7101814323281920000/a2a/v1/card"
             headers = {"Authorization": f"Bearer {active_token}"}
@@ -207,140 +548,47 @@ class AgentEngineApp(AdkApp):
             return asyncio.run(run_query())
 
     def stream_query(self, *, message, user_id: str, session_id=None, run_config=None, context: Optional[dict] = None, **kwargs):
-        """Override to initialize RemoteContext, load trajectory, and inject dynamic system instructions."""
-        # --- FAST-PATH ACTION INTERCEPTOR ---
-        if message and message.startswith("/action switchHub"):
-            parts = message.split(" ", 2)
-            if len(parts) >= 2:
-                action_payload = {}
-                if len(parts) == 3:
-                    try:
-                        import json
-                        action_payload = json.loads(parts[2])
-                    except Exception:
-                        pass
-                target_hub = action_payload.get("hubId")
-                if target_hub:
-                    yield {
-                        "content": {
-                            "parts": [{"text": f"Switching context to hub: {target_hub}"}]
-                        },
-                        "actions": [{
-                            "type": "SWITCH_HUB",
-                            "payload": {
-                                "hubId": target_hub
-                            }
-                        }]
-                    }
-                    return
-        
-        
-        import uuid
+        """Streaming query delegation to HostAgent (synchronous generator)."""
         import asyncio
         import concurrent.futures
-        import hubscape_adk
-        from app.agent import root_agent
         
-        user_id_resolved = (context or {}).get("userId") or (context or {}).get("user_id") or user_id or "anonymous_user"
-        org_id = (context or {}).get("orgId") or (context or {}).get("org_id")
-        hub_id = (context or {}).get("hubId") or (context or {}).get("hub_id")
-        
-        agent_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/Zco-AI-Labs/host-agent"))
-        from app.app_utils.env_resolver import get_project_id
-        project_id = get_project_id()
-        
-        remote_ctx = hubscape_adk.RemoteContext(
-            user_id=user_id_resolved,
-            agent_id=agent_uuid,
-            org_id=org_id,
-            hub_id=hub_id,
-            project_id=project_id,
-            raw_context=context
-        )
-        
-        system_instruction = (context or {}).get("system_instruction")
-        if system_instruction:
-            root_agent.instruction = system_instruction
-
-        session_id_resolved = session_id or (context or {}).get("sessionId") or f"session_{user_id_resolved}_{hub_id}"
-
-        with hubscape_adk.context_session(remote_ctx):
-            # Try to restore session trajectory from Firestore using ADK serialization
-            try:
-                session_doc = remote_ctx.get(scope="user", collection_name="sessions", doc_id=session_id_resolved)
-                if session_doc and "adk_session" in session_doc:
-                    adk_session_json = session_doc["adk_session"]
-                    from google.adk.sessions import Session
-                    session_obj = Session.model_validate_json(adk_session_json)
-                    
-                    # Inject loaded session into session service cache
-                    session_service = self._tmpl_attrs.get("session_service")
-                    app_name = adk_app.name
-                    uid = session_obj.user_id
-                    sid = session_obj.id
-                    
-                    if app_name not in session_service.sessions:
-                        session_service.sessions[app_name] = {}
-                    if uid not in session_service.sessions[app_name]:
-                        session_service.sessions[app_name][uid] = {}
-                    session_service.sessions[app_name][uid][sid] = session_obj
-                    print(f"🔄 Resumed ADK GEAP Session in stream_query: {session_id_resolved}")
-                else:
-                    print(f"🌱 Starting New ADK GEAP Session in stream_query: {session_id_resolved}")
-            except Exception as restore_err:
-                print(f"⚠️ Non-critical: Failed to restore session trajectory: {restore_err}")
-
-            # Execute generator
-            yield from super().stream_query(
+        async def run_generator():
+            async for chunk in self.async_stream_query(
                 message=message,
                 user_id=user_id,
-                session_id=session_id_resolved,
+                session_id=session_id,
                 run_config=run_config,
-                **kwargs,
-            )
-
-            # Yield custom actions if any were collected
-            actions = getattr(remote_ctx, "actions", [])
-            if actions:
-                yield {"actions": actions}
-
-            # Retrieve updated session state and persist back to Firestore
-            try:
-                session_service = self._tmpl_attrs.get("session_service")
-                async def fetch_session():
-                    return await session_service.get_session(
-                        app_name=adk_app.name,
-                        user_id=user_id_resolved,
-                        session_id=session_id_resolved
-                    )
+                context=context,
+                **kwargs
+            ):
+                yield chunk
                 
-                try:
-                    loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    loop = None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
 
-                if loop and loop.is_running():
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                        updated_session = executor.submit(lambda: asyncio.run(fetch_session())).result()
-                else:
-                    updated_session = asyncio.run(fetch_session())
-
-                if updated_session:
-                    serialized_json = updated_session.model_dump_json()
-                    remote_ctx.save(
-                        scope="user",
-                        collection_name="sessions",
-                        doc_id=session_id_resolved,
-                        data={
-                            "adk_session": serialized_json
-                        }
-                    )
-                    print(f"💾 Persisted ADK GEAP Session trajectory for {session_id_resolved}")
-            except Exception as save_err:
-                print(f"⚠️ Non-critical: Failed to save session trajectory: {save_err}")
+        def sync_generator_wrapper():
+            loop = asyncio.new_event_loop()
+            async_gen = run_generator()
+            try:
+                while True:
+                    try:
+                        chunk = loop.run_until_complete(async_gen.__anext__())
+                        yield chunk
+                    except StopAsyncIteration:
+                        break
+            finally:
+                loop.close()
+                
+        if loop and loop.is_running():
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                yield from executor.submit(lambda: list(sync_generator_wrapper())).result()
+        else:
+            yield from sync_generator_wrapper()
 
     async def async_stream_query(self, *, message, user_id: str, session_id=None, session_events=None, run_config=None, context: Optional[dict] = None, **kwargs):
-        """Override to initialize RemoteContext, load trajectory, and inject dynamic system instructions."""
+        """Override to initialize RemoteContext, load trajectory, and inject dynamic system instructions for streaming."""
         # --- FAST-PATH ACTION INTERCEPTOR ---
         if message and message.startswith("/action switchHub"):
             parts = message.split(" ", 2)
@@ -367,10 +615,12 @@ class AgentEngineApp(AdkApp):
                     }
                     return
         
-        
         import uuid
         import hubscape_adk
         from app.agent import root_agent
+        from google.genai import types
+        from google.adk.agents.run_config import RunConfig, StreamingMode
+        from vertexai.agent_engines import _utils
         
         user_id_resolved = (context or {}).get("userId") or (context or {}).get("user_id") or user_id or "anonymous_user"
         org_id = (context or {}).get("orgId") or (context or {}).get("org_id")
@@ -395,6 +645,10 @@ class AgentEngineApp(AdkApp):
 
         session_id_resolved = session_id or (context or {}).get("sessionId") or f"session_{user_id_resolved}_{hub_id}"
 
+        if not self.agent_executor:
+            self.set_up()
+        runner = await self.agent_executor._resolve_runner()
+
         with hubscape_adk.context_session(remote_ctx):
             # Try to restore session trajectory from Firestore using ADK serialization
             try:
@@ -405,7 +659,7 @@ class AgentEngineApp(AdkApp):
                     session_obj = Session.model_validate_json(adk_session_json)
                     
                     # Inject loaded session into session service cache
-                    session_service = self._tmpl_attrs.get("session_service")
+                    session_service = runner.session_service
                     app_name = adk_app.name
                     uid = session_obj.user_id
                     sid = session_obj.id
@@ -421,15 +675,27 @@ class AgentEngineApp(AdkApp):
             except Exception as restore_err:
                 print(f"⚠️ Non-critical: Failed to restore session trajectory: {restore_err}")
 
-            async for event in super().async_stream_query(
-                message=message,
+            new_message = types.Content(
+                parts=[types.Part.from_text(text=message)]
+            )
+
+            run_cfg = None
+            if run_config:
+                if isinstance(run_config, dict):
+                    run_cfg = RunConfig.model_validate(run_config)
+                else:
+                    run_cfg = run_config
+            if not run_cfg:
+                run_cfg = RunConfig(streaming_mode=StreamingMode.SSE)
+
+            async for event in runner.run_async(
+                new_message=new_message,
                 user_id=user_id,
                 session_id=session_id_resolved,
-                session_events=session_events,
-                run_config=run_config,
-                **kwargs,
+                run_config=run_cfg,
+                **kwargs
             ):
-                yield event
+                yield _utils.dump_event_for_json(event)
 
             # Yield custom actions if any were collected
             actions = getattr(remote_ctx, "actions", [])
@@ -438,7 +704,7 @@ class AgentEngineApp(AdkApp):
 
             # Retrieve updated session state and persist back to Firestore
             try:
-                session_service = self._tmpl_attrs.get("session_service")
+                session_service = runner.session_service
                 updated_session = await session_service.get_session(
                     app_name=adk_app.name,
                     user_id=user_id_resolved,
@@ -483,7 +749,16 @@ class AgentEngineApp(AdkApp):
     def register_operations(self) -> dict[str, list[str]]:
         """Registers the operations of the Agent."""
         operations = super().register_operations()
-        operations[""] = [*operations.get("", []), "register_feedback", "inspect_env", "test_token_access", "query", "get_agent_card"]
+        operations[""] = [
+            *operations.get("", []), 
+            "register_feedback", 
+            "inspect_env", 
+            "test_token_access", 
+            "get_agent_card",
+            "query",
+            "stream_query",
+            "async_stream_query"
+        ]
         return operations
 
     def clone(self) -> "AgentEngineApp":
@@ -493,12 +768,12 @@ class AgentEngineApp(AdkApp):
 
 gemini_location = os.environ.get("GOOGLE_CLOUD_LOCATION")
 logs_bucket_name = os.environ.get("LOGS_BUCKET_NAME")
-agent_runtime = AgentEngineApp(
+agent_runtime = AgentEngineApp.create(
     app=adk_app,
-    artifact_service_builder=lambda: (
+    artifact_service=(
         GcsArtifactService(bucket_name=logs_bucket_name)
         if logs_bucket_name
         else InMemoryArtifactService()
     ),
-    session_service_builder=lambda: InMemorySessionService(),
+    session_service=InMemorySessionService(),
 )
