@@ -73,6 +73,8 @@ from app.app_utils.typing import Feedback
 
 load_dotenv()
 
+MAIN_LOOP = None
+
 class ActionInterceptingEventQueue(EventQueue):
     def __init__(self, target_queue: EventQueue, remote_context):
         super().__init__()
@@ -383,8 +385,9 @@ class AgentEngineApp(A2aAgent):
                 artifact_service=artifact_service,
             )
 
+        global MAIN_LOOP
         try:
-            asyncio.get_running_loop()
+            MAIN_LOOP = asyncio.get_running_loop()
             nest_asyncio.apply()
         except RuntimeError:
             pass
@@ -547,17 +550,57 @@ class AgentEngineApp(A2aAgent):
         else:
             return asyncio.run(run_query())
 
-    async def stream_query(self, *, message, user_id: str, session_id=None, run_config=None, context: Optional[dict] = None, **kwargs):
-        """Streaming query delegation to HostAgent (async generator)."""
-        async for chunk in self.async_stream_query(
-            message=message,
-            user_id=user_id,
-            session_id=session_id,
-            run_config=run_config,
-            context=context,
-            **kwargs
-        ):
-            yield chunk
+    def stream_query(self, *, message, user_id: str, session_id=None, run_config=None, context: Optional[dict] = None, **kwargs):
+        """Streaming query delegation to HostAgent (synchronous generator)."""
+        import asyncio
+        import queue
+        
+        global MAIN_LOOP
+        loop = MAIN_LOOP
+        if not loop:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = None
+                    
+        if not loop:
+            loop = asyncio.new_event_loop()
+            
+        q = queue.Queue()
+        DONE = object()
+        
+        async def run_and_enqueue():
+            try:
+                async for chunk in self.async_stream_query(
+                    message=message,
+                    user_id=user_id,
+                    session_id=session_id,
+                    run_config=run_config,
+                    context=context,
+                    **kwargs
+                ):
+                    q.put(chunk)
+            except Exception as e:
+                q.put(e)
+            finally:
+                q.put(DONE)
+                
+        if loop.is_running():
+            asyncio.run_coroutine_threadsafe(run_and_enqueue(), loop)
+        else:
+            # If the loop is not running on this thread, we can run it
+            loop.run_until_complete(run_and_enqueue())
+            
+        while True:
+            item = q.get()
+            if item is DONE:
+                break
+            if isinstance(item, Exception):
+                raise item
+            yield item
 
     async def async_stream_query(self, *, message, user_id: str, session_id=None, session_events=None, run_config=None, context: Optional[dict] = None, **kwargs):
         """Override to initialize RemoteContext, load trajectory, and inject dynamic system instructions for streaming."""
