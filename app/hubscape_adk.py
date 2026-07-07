@@ -39,7 +39,7 @@ class RemoteContext:
             token = None
             try:
                 import httpx as httpx_sync
-                meta_url = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
+                meta_url = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token?scopes=https://www.googleapis.com/auth/datastore,https://www.googleapis.com/auth/cloud-platform"
                 resp = httpx_sync.get(meta_url, headers={"Metadata-Flavor": "Google"}, timeout=2.0)
                 if resp.status_code == 200:
                     token = resp.json().get("access_token")
