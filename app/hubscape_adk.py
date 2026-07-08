@@ -66,7 +66,7 @@ class RemoteContext:
                 raise ValueError("Org scope requires org_id in context.")
             base = f"organizations/{self.auth.org_id}/agent_data/{self.agent_id}/{collection_name}"
         elif scope == "platform":
-            base = f"agents/{self.agent_id}/agent_data/{collection_name}"
+            base = f"agents/{self.agent_id}/agent_data/platform/{collection_name}"
         else:
             raise ValueError(f"Unknown scope: {scope}")
             
