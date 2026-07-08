@@ -110,7 +110,8 @@ async def consultAgent(agentId: str, query: str) -> str:
                 "accessible_agents": accessible_agents,
                 "depth": current_depth + 1,
                 "backend_url": raw_ctx.get("backend_url"),
-                "capability_token": raw_ctx.get("capability_token")
+                "capability_token": raw_ctx.get("capability_token"),
+                "storageBucket": raw_ctx.get("storageBucket")
             }
 
         # Normalize the agent ID to a valid Python identifier

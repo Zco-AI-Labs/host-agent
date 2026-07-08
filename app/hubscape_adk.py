@@ -65,6 +65,8 @@ class RemoteContext:
             if not self.auth.org_id:
                 raise ValueError("Org scope requires org_id in context.")
             base = f"organizations/{self.auth.org_id}/agent_data/{self.agent_id}/{collection_name}"
+        elif scope == "platform":
+            base = f"agents/{self.agent_id}/agent_data/{collection_name}"
         else:
             raise ValueError(f"Unknown scope: {scope}")
             
@@ -128,6 +130,113 @@ class RemoteContext:
         doc_path = self.get_agent_db_path(scope, collection_name, doc_id)
         doc_ref = self._db_client.document(doc_path)
         doc_ref.delete()
+
+    @property
+    def _storage_client(self):
+        if not hasattr(self, "_storage"):
+            self._storage = None
+        if self._storage is None:
+            # Try to get OAuth2 token from Metadata Server
+            token = None
+            try:
+                import httpx as httpx_sync
+                meta_url = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token?scopes=https://www.googleapis.com/auth/devstorage.read_write,https://www.googleapis.com/auth/cloud-platform"
+                resp = httpx_sync.get(meta_url, headers={"Metadata-Flavor": "Google"}, timeout=2.0)
+                if resp.status_code == 200:
+                    token = resp.json().get("access_token")
+            except Exception:
+                pass
+
+            from google.cloud import storage as gcs_storage
+            if token:
+                from google.oauth2.credentials import Credentials as OAuth2Credentials
+                creds = OAuth2Credentials(token)
+                self._storage = gcs_storage.Client(project=self.project_id, credentials=creds)
+            else:
+                self._storage = gcs_storage.Client(project=self.project_id)
+        return self._storage
+
+    @property
+    def _storage_bucket(self):
+        import os
+        bucket_name = self.raw_context.get("storageBucket") or os.getenv("VITE_FIREBASE_STORAGE_BUCKET")
+        if not bucket_name:
+            project_id = self.project_id or os.getenv("PROJECT_ID")
+            if project_id:
+                bucket_name = f"{project_id}.firebasestorage.app"
+        if not bucket_name:
+            raise ValueError("Storage bucket name is not configured.")
+        return self._storage_client.bucket(bucket_name)
+
+    def get_agent_storage_path(self, scope: str, filename: str) -> str:
+        """
+        Resolves the GCS path for agent storage.
+        Paths:
+          - 'user': agents/{agentId}/user/{userId}/{filename}
+          - 'hub': agents/{agentId}/hub/{hubId}/{filename}
+          - 'org': agents/{agentId}/org/{orgId}/{filename}
+          - 'platform': agents/{agentId}/platform/{filename}
+        """
+        agent_id = self.agent_id or "unknown"
+        if scope == "platform":
+            return f"agents/{agent_id}/platform/{filename}"
+        elif scope == "user":
+            user_id = self.auth.get_user_id()
+            if not user_id:
+                raise ValueError("Storage scope 'user' requires authenticated user_id.")
+            return f"agents/{agent_id}/user/{user_id}/{filename}"
+        elif scope == "hub":
+            hub_id = self.auth.hub_id
+            if not hub_id:
+                raise ValueError("Storage scope 'hub' requires hub_id.")
+            return f"agents/{agent_id}/hub/{hub_id}/{filename}"
+        elif scope == "org":
+            org_id = self.auth.org_id
+            if not org_id:
+                raise ValueError("Storage scope 'org' requires org_id.")
+            return f"agents/{agent_id}/org/{org_id}/{filename}"
+        else:
+            raise ValueError(f"Invalid storage scope: '{scope}'. Must be 'user', 'hub', 'org', or 'platform'.")
+
+    def save_file(self, scope: str, filename: str, content: bytes, content_type: Optional[str] = None) -> dict:
+        """
+        Saves a file to Firebase Storage under the appropriate scope.
+        Returns a dict containing 'storage_path' and 'download_url'.
+        """
+        storage_path = self.get_agent_storage_path(scope, filename)
+        bucket = self._storage_bucket
+        blob = bucket.blob(storage_path)
+        blob.upload_from_string(content, content_type=content_type)
+
+        import urllib.parse
+        encoded_path = urllib.parse.quote(storage_path, safe='')
+        download_url = f"https://firebasestorage.googleapis.com/v0/b/{bucket.name}/o/{encoded_path}?alt=media"
+
+        return {
+            "storage_path": storage_path,
+            "download_url": download_url
+        }
+
+    def get_file(self, scope: str, filename: str) -> Optional[bytes]:
+        """
+        Retrieves a file's content from Firebase Storage under the appropriate scope.
+        """
+        storage_path = self.get_agent_storage_path(scope, filename)
+        bucket = self._storage_bucket
+        blob = bucket.blob(storage_path)
+        if blob.exists():
+            return blob.download_as_bytes()
+        return None
+
+    def delete_file(self, scope: str, filename: str):
+        """
+        Deletes a file from Firebase Storage under the appropriate scope.
+        """
+        storage_path = self.get_agent_storage_path(scope, filename)
+        bucket = self._storage_bucket
+        blob = bucket.blob(storage_path)
+        if blob.exists():
+            blob.delete()
 
     def show_widget(self, widget_template_id: str, data: dict = None) -> dict:
         """Loads a predefined widget JSON and registers a client action directive to show it."""
