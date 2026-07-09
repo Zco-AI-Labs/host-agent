@@ -1,0 +1,21 @@
+{
+  "privileges": {
+    "1": {
+      "name": "Orchestrator Core",
+      "description": "Allows standard routing and query execution between subagents",
+      "tools": [
+        "consultAgent",
+        "discover_agents",
+        "run_agent_parallel",
+        "suggestQueries"
+      ]
+    },
+    "2": {
+      "name": "System Diagnostic",
+      "description": "Allows high-privilege environment inspection and debugging",
+      "tools": [
+        "inspect_env"
+      ]
+    }
+  }
+}
