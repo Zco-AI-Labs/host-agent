@@ -410,9 +410,14 @@ def require_tool_privilege(func):
                         priv_data = json.load(f)
                     privileges_config = priv_data.get("privileges", {})
                     for priv_id in allowed_privilege_ids:
-                        priv_info = privileges_config.get(priv_id) or {}
-                        tools = priv_info.get("tools") or []
-                        allowed_tools.extend(tools)
+                        priv_info = privileges_config.get(priv_id)
+                        if priv_info:
+                            tools = priv_info.get("tools") or []
+                            allowed_tools.extend(tools)
+                        else:
+                            # TODO: Remove this temporary bandaid.
+                            # Fallback for older backend versions that send raw tool names.
+                            allowed_tools.append(priv_id)
                 except Exception as read_err:
                     logging.getLogger(__name__).warning(f"⚠️ Failed to read/parse privileges.json: {read_err}")
                 
