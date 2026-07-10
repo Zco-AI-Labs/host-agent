@@ -56,3 +56,29 @@ print(f"Executing: {' '.join(cmd)}")
 subprocess.run(cmd, env=env, check=True)
 print("🎉 Deployment completed successfully!")
 
+# Trigger dynamic registry sync on local backend if running
+try:
+    import urllib.request
+    import json
+    
+    backend_url = os.getenv("HUBSCAPE_BACKEND_URL", "http://localhost:8000")
+    secret = os.getenv("HUBSCAPE_HMAC_SECRET", "dev_secret_key_dont_use_in_prod")
+    
+    url = f"{backend_url.rstrip('/')}/api/agents/sync"
+    req = urllib.request.Request(
+        url,
+        data=b"",
+        headers={
+            "X-Hubscape-Secret": secret,
+            "Content-Type": "application/json"
+        },
+        method="POST"
+    )
+    
+    print(f"📡 Triggering immediate agent registry sync on local backend: {url}")
+    with urllib.request.urlopen(req, timeout=10) as response:
+        res_data = json.loads(response.read().decode())
+        print(f"✅ Sync Response: {res_data.get('message', 'Success')}")
+except Exception as e:
+    print(f"ℹ️ Local backend sync trigger skipped or failed: {e} (Backend might not be running locally)")
+
