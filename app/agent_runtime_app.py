@@ -835,10 +835,11 @@ class AgentEngineApp(A2aAgent):
             "test_token_access", 
             "get_agent_card",
             "query",
-            "stream_query",
-            "async_stream_query"
         ]
+        operations["stream"] = ["stream_query"]
+        operations["async_stream"] = ["async_stream_query"]
         return operations
+
 
     def clone(self) -> "AgentEngineApp":
         """Returns a clone of the Agent Runtime application."""
