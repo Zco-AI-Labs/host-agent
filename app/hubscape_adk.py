@@ -415,8 +415,8 @@ def require_tool_privilege(func):
                             tools = priv_info.get("tools") or []
                             allowed_tools.extend(tools)
                         else:
-                            # TODO: Remove this temporary bandaid.
-                            # Fallback for older backend versions that send raw tool names.
+                            # TODO: TEMPORARY BANDAID (Remove once hubscape-geap backend changes are deployed to live).
+                            # Fallback to handle old backend versions that send raw tool names in the capability token.
                             allowed_tools.append(priv_id)
                 except Exception as read_err:
                     logging.getLogger(__name__).warning(f"⚠️ Failed to read/parse privileges.json: {read_err}")

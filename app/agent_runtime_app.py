@@ -453,7 +453,7 @@ class AgentEngineApp(A2aAgent):
         agent_card_builder = AgentCardBuilder(
             agent=app.root_agent,
             capabilities=AgentCapabilities(
-                streaming=False,
+                streaming=True,
                 extensions=extensions,
             ),
             rpc_url="http://localhost:9999/",
@@ -811,7 +811,7 @@ class AgentEngineApp(A2aAgent):
             "description": getattr(root_agent, "description", "Host orchestrator agent."),
             "version": "0.1.0",
             "capabilities": {
-                "streaming": False,
+                "streaming": True,
                 "extensions": extensions
             },
             "tools": []

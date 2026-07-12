@@ -85,7 +85,7 @@ async def test_agent_card(agent_app: AgentEngineApp) -> None:
 
     # Verify capabilities
     capabilities = response.get("capabilities", {})
-    assert capabilities.get("streaming") is False, "Expected streaming disabled"
+    assert capabilities.get("streaming") is True, "Expected streaming enabled"
 
     # Verify skills
     skills = response.get("skills", [])
