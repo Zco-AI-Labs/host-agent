@@ -415,6 +415,7 @@ class AgentEngineApp(A2aAgent):
                 app=app,
                 session_service=session_service,
                 artifact_service=artifact_service,
+                auto_create_session=True,
             )
 
         global MAIN_LOOP
