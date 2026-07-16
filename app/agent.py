@@ -8,6 +8,7 @@ import asyncio
 import importlib.util
 import re
 import json
+import time
 from google.adk import Agent as AdkAgent
 from google.adk.runners import Runner
 from google.genai import types
@@ -61,6 +62,7 @@ class HostAgent:
         self.runner = None
 
     async def query(self, question: str, context: dict = None) -> str:
+        start_time = time.time()
         runtime_dir = os.path.dirname(os.path.abspath(__file__))
         
         # --- A2A JSON-RPC WRAPPING PARSER ---
@@ -122,6 +124,8 @@ class HostAgent:
                 current_span.set_attribute("hub_id", hub_id or "unknown")
                 current_span.set_attribute("user_id", user_id or "unknown")
                 current_span.set_attribute("gen_ai.conversation_id", session_id)
+                current_span.set_attribute("gen_ai.request.model", root_agent.model.model_name)
+                current_span.set_attribute("provider", "vertex")
         except Exception as otel_err:
             print(f"⚠️ Failed to set OpenTelemetry span attributes: {otel_err}")
         # ----------------------------------------------------
@@ -233,6 +237,16 @@ class HostAgent:
                     print(f"💾 Persisted ADK GEAP Session trajectory for {session_id}")
             except Exception as save_err:
                 print(f"⚠️ Non-critical: Failed to save session trajectory: {save_err}")
+                
+            # Record final execution latency on active span
+            try:
+                from opentelemetry import trace
+                current_span = trace.get_current_span()
+                if current_span:
+                    latency_ms = (time.time() - start_time) * 1000.0
+                    current_span.set_attribute("latency_ms", float(latency_ms))
+            except Exception as otel_err:
+                pass
                 
             # Fetch any actions collected during the context session
             actions = getattr(remote_ctx, "actions", [])
