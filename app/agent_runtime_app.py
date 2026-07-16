@@ -67,6 +67,12 @@ from google.cloud import logging as google_cloud_logging
 from vertexai.preview.reasoning_engines import A2aAgent
 
 import hubscape_adk
+from contextvars import ContextVar
+telemetry_org_id = ContextVar("telemetry_org_id", default=None)
+telemetry_hub_id = ContextVar("telemetry_hub_id", default=None)
+telemetry_user_id = ContextVar("telemetry_user_id", default=None)
+telemetry_conversation_id = ContextVar("telemetry_conversation_id", default=None)
+
 from app.agent import app as adk_app
 from app.app_utils.telemetry import setup_telemetry
 from app.app_utils.typing import Feedback
@@ -232,6 +238,12 @@ class AgentEngineA2aExecutor(A2aAgentExecutor):
             
         session_id_resolved = metadata.get("sessionId") or f"session_{user_id_resolved}_{hub_id}"
         
+        # --- TELEMETRY CONTEXT VARIABLES SETTING ---
+        telemetry_org_id.set(org_id or "unknown")
+        telemetry_hub_id.set(hub_id or "unknown")
+        telemetry_user_id.set(user_id_resolved or "unknown")
+        telemetry_conversation_id.set(session_id_resolved)
+
         # --- OPENTELEMETRY CONTEXT ENRICHMENT ---
         try:
             from opentelemetry import trace
@@ -264,6 +276,7 @@ class AgentEngineA2aExecutor(A2aAgentExecutor):
                     class BillingContextLogRecordProcessor(LogRecordProcessor):
                         def on_emit(self, log_record, context=None):
                             try:
+                                # 1. Try tracing span attributes
                                 span = trace.get_current_span()
                                 if span and span.get_span_context().is_valid:
                                     span_attribs = getattr(span, "attributes", None)
@@ -280,6 +293,25 @@ class AgentEngineA2aExecutor(A2aAgentExecutor):
                                                     if not log_record.attributes:
                                                         log_record.attributes = {}
                                                     log_record.attributes[key] = val
+
+                                # 2. Fallback/overwrite with task-local ContextVars (extremely reliable)
+                                ctx_vars = {
+                                    "org_id": telemetry_org_id.get(),
+                                    "hub_id": telemetry_hub_id.get(),
+                                    "user_id": telemetry_user_id.get(),
+                                    "gen_ai.conversation_id": telemetry_conversation_id.get()
+                                }
+                                for key, val in ctx_vars.items():
+                                    if val is not None:
+                                        log_record_inner = getattr(log_record, "log_record", None)
+                                        if log_record_inner:
+                                            if not log_record_inner.attributes:
+                                                log_record_inner.attributes = {}
+                                            log_record_inner.attributes[key] = val
+                                        else:
+                                            if not log_record.attributes:
+                                                log_record.attributes = {}
+                                            log_record.attributes[key] = val
                             except Exception:
                                 pass
 
@@ -809,6 +841,12 @@ class AgentEngineApp(A2aAgent):
 
         session_id_resolved = session_id or (context or {}).get("sessionId") or f"session_{user_id_resolved}_{hub_id}"
 
+        # --- TELEMETRY CONTEXT VARIABLES SETTING ---
+        telemetry_org_id.set(org_id or "unknown")
+        telemetry_hub_id.set(hub_id or "unknown")
+        telemetry_user_id.set(user_id_resolved or "unknown")
+        telemetry_conversation_id.set(session_id_resolved)
+
         # --- OPENTELEMETRY CONTEXT ENRICHMENT ---
         try:
             from opentelemetry import trace
@@ -841,6 +879,7 @@ class AgentEngineApp(A2aAgent):
                     class BillingContextLogRecordProcessor(LogRecordProcessor):
                         def on_emit(self, log_record, context=None):
                             try:
+                                # 1. Try tracing span attributes
                                 span = trace.get_current_span()
                                 if span and span.get_span_context().is_valid:
                                     span_attribs = getattr(span, "attributes", None)
@@ -857,6 +896,25 @@ class AgentEngineApp(A2aAgent):
                                                     if not log_record.attributes:
                                                         log_record.attributes = {}
                                                     log_record.attributes[key] = val
+
+                                # 2. Fallback/overwrite with task-local ContextVars (extremely reliable)
+                                ctx_vars = {
+                                    "org_id": telemetry_org_id.get(),
+                                    "hub_id": telemetry_hub_id.get(),
+                                    "user_id": telemetry_user_id.get(),
+                                    "gen_ai.conversation_id": telemetry_conversation_id.get()
+                                }
+                                for key, val in ctx_vars.items():
+                                    if val is not None:
+                                        log_record_inner = getattr(log_record, "log_record", None)
+                                        if log_record_inner:
+                                            if not log_record_inner.attributes:
+                                                log_record_inner.attributes = {}
+                                            log_record_inner.attributes[key] = val
+                                        else:
+                                            if not log_record.attributes:
+                                                log_record.attributes = {}
+                                            log_record.attributes[key] = val
                             except Exception:
                                 pass
 
