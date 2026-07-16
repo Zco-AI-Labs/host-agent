@@ -252,7 +252,6 @@ class AgentEngineA2aExecutor(A2aAgentExecutor):
                 current_span.set_attribute("org_id", org_id or "unknown")
                 current_span.set_attribute("hub_id", hub_id or "unknown")
                 current_span.set_attribute("user_id", user_id_resolved or "unknown")
-                current_span.set_attribute("gen_ai.conversation_id", session_id_resolved)
         except Exception as otel_err:
             print(f"⚠️ Failed to set OpenTelemetry span attributes in executor: {otel_err}")
 
@@ -281,7 +280,7 @@ class AgentEngineA2aExecutor(A2aAgentExecutor):
                                 if span and span.get_span_context().is_valid:
                                     span_attribs = getattr(span, "attributes", None)
                                     if span_attribs:
-                                        for key in ["org_id", "hub_id", "user_id", "gen_ai.conversation_id"]:
+                                        for key in ["org_id", "hub_id", "user_id"]:
                                             if key in span_attribs:
                                                 val = span_attribs[key]
                                                 log_record_inner = getattr(log_record, "log_record", None)
@@ -298,8 +297,7 @@ class AgentEngineA2aExecutor(A2aAgentExecutor):
                                 ctx_vars = {
                                     "org_id": telemetry_org_id.get(),
                                     "hub_id": telemetry_hub_id.get(),
-                                    "user_id": telemetry_user_id.get(),
-                                    "gen_ai.conversation_id": telemetry_conversation_id.get()
+                                    "user_id": telemetry_user_id.get()
                                 }
                                 for key, val in ctx_vars.items():
                                     if val is not None:
@@ -855,7 +853,6 @@ class AgentEngineApp(A2aAgent):
                 current_span.set_attribute("org_id", org_id or "unknown")
                 current_span.set_attribute("hub_id", hub_id or "unknown")
                 current_span.set_attribute("user_id", user_id_resolved or "unknown")
-                current_span.set_attribute("gen_ai.conversation_id", session_id_resolved)
         except Exception as otel_err:
             print(f"⚠️ Failed to set OpenTelemetry span attributes in stream query: {otel_err}")
 
@@ -884,7 +881,7 @@ class AgentEngineApp(A2aAgent):
                                 if span and span.get_span_context().is_valid:
                                     span_attribs = getattr(span, "attributes", None)
                                     if span_attribs:
-                                        for key in ["org_id", "hub_id", "user_id", "gen_ai.conversation_id"]:
+                                        for key in ["org_id", "hub_id", "user_id"]:
                                             if key in span_attribs:
                                                 val = span_attribs[key]
                                                 log_record_inner = getattr(log_record, "log_record", None)
@@ -901,8 +898,7 @@ class AgentEngineApp(A2aAgent):
                                 ctx_vars = {
                                     "org_id": telemetry_org_id.get(),
                                     "hub_id": telemetry_hub_id.get(),
-                                    "user_id": telemetry_user_id.get(),
-                                    "gen_ai.conversation_id": telemetry_conversation_id.get()
+                                    "user_id": telemetry_user_id.get()
                                 }
                                 for key, val in ctx_vars.items():
                                     if val is not None:
