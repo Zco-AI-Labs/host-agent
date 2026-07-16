@@ -243,6 +243,52 @@ class AgentEngineA2aExecutor(A2aAgentExecutor):
                 current_span.set_attribute("gen_ai.conversation_id", session_id_resolved)
         except Exception as otel_err:
             print(f"⚠️ Failed to set OpenTelemetry span attributes in executor: {otel_err}")
+
+        # --- DYNAMIC OTEL LOG PROCESSOR REGISTRATION ---
+        try:
+            from opentelemetry._logs import get_logger_provider
+            from opentelemetry.sdk._logs import LoggerProvider
+
+            provider = get_logger_provider()
+            if hasattr(provider, "_logger_provider"):
+                provider = provider._logger_provider
+
+            if isinstance(provider, LoggerProvider):
+                has_processor = any(
+                    p.__class__.__name__ == "BillingContextLogRecordProcessor"
+                    for p in getattr(provider, "_log_record_processors", [])
+                )
+                if not has_processor:
+                    from opentelemetry.sdk._logs import LogRecordProcessor
+
+                    class BillingContextLogRecordProcessor(LogRecordProcessor):
+                        def emit(self, log_record, context=None):
+                            try:
+                                span = trace.get_current_span()
+                                if span and span.get_span_context().is_valid:
+                                    span_attribs = getattr(span, "attributes", None)
+                                    if span_attribs:
+                                        for key in ["org_id", "hub_id", "user_id", "gen_ai.conversation_id"]:
+                                            if key in span_attribs:
+                                                val = span_attribs[key]
+                                                log_record_inner = getattr(log_record, "log_record", None)
+                                                if log_record_inner:
+                                                    if not log_record_inner.attributes:
+                                                        log_record_inner.attributes = {}
+                                                    log_record_inner.attributes[key] = val
+                                                else:
+                                                    if not log_record.attributes:
+                                                        log_record.attributes = {}
+                                                    log_record.attributes[key] = val
+                            except Exception:
+                                pass
+
+                    provider.add_log_record_processor(BillingContextLogRecordProcessor())
+                    import logging
+                    logging.info("BillingContextLogRecordProcessor dynamically registered successfully on LoggerProvider")
+        except Exception as otel_reg_err:
+            import logging
+            logging.warning("Failed to dynamically register BillingContextLogRecordProcessor: %s", otel_reg_err)
         
         # 1. Restore ADK Session from Firestore
         try:
@@ -768,6 +814,52 @@ class AgentEngineApp(A2aAgent):
                 current_span.set_attribute("gen_ai.conversation_id", session_id_resolved)
         except Exception as otel_err:
             print(f"⚠️ Failed to set OpenTelemetry span attributes in stream query: {otel_err}")
+
+        # --- DYNAMIC OTEL LOG PROCESSOR REGISTRATION ---
+        try:
+            from opentelemetry._logs import get_logger_provider
+            from opentelemetry.sdk._logs import LoggerProvider
+
+            provider = get_logger_provider()
+            if hasattr(provider, "_logger_provider"):
+                provider = provider._logger_provider
+
+            if isinstance(provider, LoggerProvider):
+                has_processor = any(
+                    p.__class__.__name__ == "BillingContextLogRecordProcessor"
+                    for p in getattr(provider, "_log_record_processors", [])
+                )
+                if not has_processor:
+                    from opentelemetry.sdk._logs import LogRecordProcessor
+
+                    class BillingContextLogRecordProcessor(LogRecordProcessor):
+                        def emit(self, log_record, context=None):
+                            try:
+                                span = trace.get_current_span()
+                                if span and span.get_span_context().is_valid:
+                                    span_attribs = getattr(span, "attributes", None)
+                                    if span_attribs:
+                                        for key in ["org_id", "hub_id", "user_id", "gen_ai.conversation_id"]:
+                                            if key in span_attribs:
+                                                val = span_attribs[key]
+                                                log_record_inner = getattr(log_record, "log_record", None)
+                                                if log_record_inner:
+                                                    if not log_record_inner.attributes:
+                                                        log_record_inner.attributes = {}
+                                                    log_record_inner.attributes[key] = val
+                                                else:
+                                                    if not log_record.attributes:
+                                                        log_record.attributes = {}
+                                                    log_record.attributes[key] = val
+                            except Exception:
+                                pass
+
+                    provider.add_log_record_processor(BillingContextLogRecordProcessor())
+                    import logging
+                    logging.info("BillingContextLogRecordProcessor dynamically registered successfully on LoggerProvider")
+        except Exception as otel_reg_err:
+            import logging
+            logging.warning("Failed to dynamically register BillingContextLogRecordProcessor: %s", otel_reg_err)
 
         if not self.agent_executor:
             self.set_up()
