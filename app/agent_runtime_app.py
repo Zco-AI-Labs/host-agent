@@ -480,6 +480,45 @@ class AgentEngineApp(A2aAgent):
         vertexai.init()
         setup_telemetry()
         super().set_up()
+        
+        # Register billing context processor to propagate span attributes to log records
+        try:
+            from opentelemetry.sdk._logs import LogRecordProcessor
+            from opentelemetry import trace
+
+            class BillingContextLogRecordProcessor(LogRecordProcessor):
+                def emit(self, log_record, context=None):
+                    try:
+                        span = trace.get_current_span()
+                        if span and span.get_span_context().is_valid:
+                            span_attribs = getattr(span, "attributes", None)
+                            if span_attribs:
+                                for key in ["org_id", "hub_id", "user_id", "gen_ai.conversation_id"]:
+                                    if key in span_attribs:
+                                        val = span_attribs[key]
+                                        log_record_inner = getattr(log_record, "log_record", None)
+                                        if log_record_inner:
+                                            if not log_record_inner.attributes:
+                                                log_record_inner.attributes = {}
+                                            log_record_inner.attributes[key] = val
+                                        else:
+                                            if not log_record.attributes:
+                                                log_record.attributes = {}
+                                            log_record.attributes[key] = val
+                    except Exception:
+                        pass
+
+            from opentelemetry._logs import get_logger_provider
+            from opentelemetry.sdk._logs import LoggerProvider
+            provider = get_logger_provider()
+            if isinstance(provider, LoggerProvider):
+                provider.add_log_record_processor(BillingContextLogRecordProcessor())
+                logging.info("BillingContextLogRecordProcessor registered successfully on LoggerProvider")
+            else:
+                logging.warning("LoggerProvider is not a LoggerProvider: %s", type(provider))
+        except Exception as otel_reg_err:
+            logging.warning("Failed to register BillingContextLogRecordProcessor: %s", otel_reg_err)
+
         logging.basicConfig(level=logging.INFO)
         logging_client = google_cloud_logging.Client()
         self.logger = logging_client.logger(__name__)
