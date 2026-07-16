@@ -29,9 +29,9 @@ def setup_telemetry() -> str | None:
             "Prompt-response logging enabled - mode: NO_CONTENT (metadata only, no prompts/responses)"
         )
         try:
-            from opentelemetry.instrumentation.google_genai import GenAIInstrumentor
-            GenAIInstrumentor().instrument()
-            logging.info("Successfully instrumented google-genai calls with GenAIInstrumentor")
+            from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
+            GoogleGenAiSdkInstrumentor().instrument()
+            logging.info("Successfully instrumented google-genai calls with GoogleGenAiSdkInstrumentor")
         except Exception as e:
             logging.warning("Could not instrument google-genai calls: %s", e)
 
