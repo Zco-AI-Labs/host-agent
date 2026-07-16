@@ -232,6 +232,18 @@ class AgentEngineA2aExecutor(A2aAgentExecutor):
             
         session_id_resolved = metadata.get("sessionId") or f"session_{user_id_resolved}_{hub_id}"
         
+        # --- OPENTELEMETRY CONTEXT ENRICHMENT ---
+        try:
+            from opentelemetry import trace
+            current_span = trace.get_current_span()
+            if current_span:
+                current_span.set_attribute("org_id", org_id or "unknown")
+                current_span.set_attribute("hub_id", hub_id or "unknown")
+                current_span.set_attribute("user_id", user_id_resolved or "unknown")
+                current_span.set_attribute("gen_ai.conversation_id", session_id_resolved)
+        except Exception as otel_err:
+            print(f"⚠️ Failed to set OpenTelemetry span attributes in executor: {otel_err}")
+        
         # 1. Restore ADK Session from Firestore
         try:
             session_doc = remote_ctx.get(scope="user", collection_name="sessions", doc_id=session_id_resolved)
@@ -744,6 +756,18 @@ class AgentEngineApp(A2aAgent):
             root_agent.instruction = system_instruction
 
         session_id_resolved = session_id or (context or {}).get("sessionId") or f"session_{user_id_resolved}_{hub_id}"
+
+        # --- OPENTELEMETRY CONTEXT ENRICHMENT ---
+        try:
+            from opentelemetry import trace
+            current_span = trace.get_current_span()
+            if current_span:
+                current_span.set_attribute("org_id", org_id or "unknown")
+                current_span.set_attribute("hub_id", hub_id or "unknown")
+                current_span.set_attribute("user_id", user_id_resolved or "unknown")
+                current_span.set_attribute("gen_ai.conversation_id", session_id_resolved)
+        except Exception as otel_err:
+            print(f"⚠️ Failed to set OpenTelemetry span attributes in stream query: {otel_err}")
 
         if not self.agent_executor:
             self.set_up()
