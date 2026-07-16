@@ -45,6 +45,7 @@ cmd = [
     "--region", LOCATION,
     "--service-name", display_name,
     "--service-account", f"{iam_profile}@{PROJECT_ID}.iam.gserviceaccount.com",
+    "--update-env-vars", "LOGS_BUCKET_NAME=hubscape-geap-telemetry-logs,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT",
     "--no-confirm-project"
 ]
 
