@@ -24,6 +24,8 @@ dependencies = [
     "protobuf>=6.31.1,<7.0.0",
     "pyjwt",
     "cryptography",
+    "opentelemetry-instrumentation-google-genai>=0.7b1,<1.0.0",
+    "opentelemetry-instrumentation-grpc>=0.40b0,<1.0.0",
 ]
 requires-python = ">=3.11,<3.14"
 

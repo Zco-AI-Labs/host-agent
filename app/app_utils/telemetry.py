@@ -28,6 +28,13 @@ def setup_telemetry() -> str | None:
         logging.info(
             "Prompt-response logging enabled - mode: NO_CONTENT (metadata only, no prompts/responses)"
         )
+        try:
+            from opentelemetry.instrumentation.google_genai import GenAIInstrumentor
+            GenAIInstrumentor().instrument()
+            logging.info("Successfully instrumented google-genai calls with GenAIInstrumentor")
+        except Exception as e:
+            logging.warning("Could not instrument google-genai calls: %s", e)
+
         os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "NO_CONTENT"
         os.environ.setdefault("OTEL_INSTRUMENTATION_GENAI_UPLOAD_FORMAT", "jsonl")
         os.environ.setdefault("OTEL_INSTRUMENTATION_GENAI_COMPLETION_HOOK", "upload")
