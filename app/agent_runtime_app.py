@@ -280,7 +280,7 @@ class AgentEngineA2aExecutor(A2aAgentExecutor):
                                 if span and span.get_span_context().is_valid:
                                     span_attribs = getattr(span, "attributes", None)
                                     if span_attribs:
-                                        for key in ["org_id", "hub_id", "user_id"]:
+                                        for key in ["org_id", "hub_id", "user_id", "gen_ai.request.model", "gen_ai_request_model", "provider", "latency_ms"]:
                                             if key in span_attribs:
                                                 val = span_attribs[key]
                                                 log_record_inner = getattr(log_record, "log_record", None)
@@ -587,7 +587,7 @@ class AgentEngineApp(A2aAgent):
                         if span and span.get_span_context().is_valid:
                             span_attribs = getattr(span, "attributes", None)
                             if span_attribs:
-                                for key in ["org_id", "hub_id", "user_id", "gen_ai.conversation_id"]:
+                                for key in ["org_id", "hub_id", "user_id", "gen_ai.conversation_id", "gen_ai.request.model", "gen_ai_request_model", "provider", "latency_ms"]:
                                     if key in span_attribs:
                                         val = span_attribs[key]
                                         log_record_inner = getattr(log_record, "log_record", None)
@@ -881,7 +881,7 @@ class AgentEngineApp(A2aAgent):
                                 if span and span.get_span_context().is_valid:
                                     span_attribs = getattr(span, "attributes", None)
                                     if span_attribs:
-                                        for key in ["org_id", "hub_id", "user_id"]:
+                                        for key in ["org_id", "hub_id", "user_id", "gen_ai.request.model", "gen_ai_request_model", "provider", "latency_ms"]:
                                             if key in span_attribs:
                                                 val = span_attribs[key]
                                                 log_record_inner = getattr(log_record, "log_record", None)
