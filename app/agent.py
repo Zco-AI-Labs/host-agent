@@ -113,6 +113,19 @@ class HostAgent:
         # Resolve session ID
         session_id = (context or {}).get("sessionId") or f"session_{user_id}_{hub_id}"
 
+        # --- OPENTELEMETRY CONTEXT ENRICHMENT (OPTION A) ---
+        try:
+            from opentelemetry import trace
+            current_span = trace.get_current_span()
+            if current_span:
+                current_span.set_attribute("org_id", org_id or "unknown")
+                current_span.set_attribute("hub_id", hub_id or "unknown")
+                current_span.set_attribute("user_id", user_id or "unknown")
+                current_span.set_attribute("gen_ai.conversation_id", session_id)
+        except Exception as otel_err:
+            print(f"⚠️ Failed to set OpenTelemetry span attributes: {otel_err}")
+        # ----------------------------------------------------
+
         # --- FAST-PATH ACTION INTERCEPTOR ---
         if parsed_question.startswith("/action switchHub"):
             parts = parsed_question.split(" ", 2)
