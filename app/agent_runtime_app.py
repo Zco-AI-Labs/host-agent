@@ -73,6 +73,56 @@ telemetry_hub_id = ContextVar("telemetry_hub_id", default=None)
 telemetry_user_id = ContextVar("telemetry_user_id", default=None)
 telemetry_conversation_id = ContextVar("telemetry_conversation_id", default=None)
 
+from opentelemetry.sdk._logs import LogRecordProcessor
+from opentelemetry import trace
+
+class BillingContextLogRecordProcessor(LogRecordProcessor):
+    def on_emit(self, log_record, context=None):
+        try:
+            # 1. Try tracing span attributes
+            span = trace.get_current_span()
+            if span and span.get_span_context().is_valid:
+                span_attribs = getattr(span, "attributes", None)
+                if span_attribs:
+                    for key in ["org_id", "hub_id", "user_id", "gen_ai.conversation_id", "gen_ai.request.model", "gen_ai_request_model", "provider", "latency_ms"]:
+                        if key in span_attribs:
+                            val = span_attribs[key]
+                            log_record_inner = getattr(log_record, "log_record", None)
+                            if log_record_inner:
+                                if not log_record_inner.attributes:
+                                    log_record_inner.attributes = {}
+                                log_record_inner.attributes[key] = val
+                            else:
+                                if not log_record.attributes:
+                                    log_record.attributes = {}
+                                log_record.attributes[key] = val
+
+            # 2. Fallback/overwrite with task-local ContextVars (extremely reliable)
+            ctx_vars = {
+                "org_id": telemetry_org_id.get(),
+                "hub_id": telemetry_hub_id.get(),
+                "user_id": telemetry_user_id.get()
+            }
+            for key, val in ctx_vars.items():
+                if val is not None:
+                    log_record_inner = getattr(log_record, "log_record", None)
+                    if log_record_inner:
+                        if not log_record_inner.attributes:
+                            log_record_inner.attributes = {}
+                        log_record_inner.attributes[key] = val
+                    else:
+                        if not log_record.attributes:
+                            log_record.attributes = {}
+                        log_record.attributes[key] = val
+        except Exception:
+            pass
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        return True
+
+    def shutdown(self) -> None:
+        pass
+
 from app.agent import app as adk_app
 from app.app_utils.telemetry import setup_telemetry
 from app.app_utils.typing import Feedback
@@ -255,76 +305,7 @@ class AgentEngineA2aExecutor(A2aAgentExecutor):
         except Exception as otel_err:
             print(f"⚠️ Failed to set OpenTelemetry span attributes in executor: {otel_err}")
 
-        # --- DYNAMIC OTEL LOG PROCESSOR REGISTRATION ---
-        try:
-            from opentelemetry._logs import get_logger_provider
-            from opentelemetry.sdk._logs import LoggerProvider
 
-            provider = get_logger_provider()
-            if hasattr(provider, "_logger_provider"):
-                provider = provider._logger_provider
-
-            if isinstance(provider, LoggerProvider):
-                has_processor = any(
-                    p.__class__.__name__ == "BillingContextLogRecordProcessor"
-                    for p in getattr(provider, "_log_record_processors", [])
-                )
-                if not has_processor:
-                    from opentelemetry.sdk._logs import LogRecordProcessor
-
-                    class BillingContextLogRecordProcessor(LogRecordProcessor):
-                        def on_emit(self, log_record, context=None):
-                            try:
-                                # 1. Try tracing span attributes
-                                span = trace.get_current_span()
-                                if span and span.get_span_context().is_valid:
-                                    span_attribs = getattr(span, "attributes", None)
-                                    if span_attribs:
-                                        for key in ["org_id", "hub_id", "user_id", "gen_ai.request.model", "gen_ai_request_model", "provider", "latency_ms"]:
-                                            if key in span_attribs:
-                                                val = span_attribs[key]
-                                                log_record_inner = getattr(log_record, "log_record", None)
-                                                if log_record_inner:
-                                                    if not log_record_inner.attributes:
-                                                        log_record_inner.attributes = {}
-                                                    log_record_inner.attributes[key] = val
-                                                else:
-                                                    if not log_record.attributes:
-                                                        log_record.attributes = {}
-                                                    log_record.attributes[key] = val
-
-                                # 2. Fallback/overwrite with task-local ContextVars (extremely reliable)
-                                ctx_vars = {
-                                    "org_id": telemetry_org_id.get(),
-                                    "hub_id": telemetry_hub_id.get(),
-                                    "user_id": telemetry_user_id.get()
-                                }
-                                for key, val in ctx_vars.items():
-                                    if val is not None:
-                                        log_record_inner = getattr(log_record, "log_record", None)
-                                        if log_record_inner:
-                                            if not log_record_inner.attributes:
-                                                log_record_inner.attributes = {}
-                                            log_record_inner.attributes[key] = val
-                                        else:
-                                            if not log_record.attributes:
-                                                log_record.attributes = {}
-                                            log_record.attributes[key] = val
-                            except Exception:
-                                pass
-
-                        def force_flush(self, timeout_millis: int = 30000) -> bool:
-                            return True
-
-                        def shutdown(self) -> None:
-                            pass
-
-                    provider.add_log_record_processor(BillingContextLogRecordProcessor())
-                    import logging
-                    logging.info("BillingContextLogRecordProcessor dynamically registered successfully on LoggerProvider")
-        except Exception as otel_reg_err:
-            import logging
-            logging.warning("Failed to dynamically register BillingContextLogRecordProcessor: %s", otel_reg_err)
         
         # 1. Restore ADK Session from Firestore
         try:
@@ -577,31 +558,6 @@ class AgentEngineApp(A2aAgent):
         
         # Register billing context processor to propagate span attributes to log records
         try:
-            from opentelemetry.sdk._logs import LogRecordProcessor
-            from opentelemetry import trace
-
-            class BillingContextLogRecordProcessor(LogRecordProcessor):
-                def emit(self, log_record, context=None):
-                    try:
-                        span = trace.get_current_span()
-                        if span and span.get_span_context().is_valid:
-                            span_attribs = getattr(span, "attributes", None)
-                            if span_attribs:
-                                for key in ["org_id", "hub_id", "user_id", "gen_ai.conversation_id", "gen_ai.request.model", "gen_ai_request_model", "provider", "latency_ms"]:
-                                    if key in span_attribs:
-                                        val = span_attribs[key]
-                                        log_record_inner = getattr(log_record, "log_record", None)
-                                        if log_record_inner:
-                                            if not log_record_inner.attributes:
-                                                log_record_inner.attributes = {}
-                                            log_record_inner.attributes[key] = val
-                                        else:
-                                            if not log_record.attributes:
-                                                log_record.attributes = {}
-                                            log_record.attributes[key] = val
-                    except Exception:
-                        pass
-
             from opentelemetry._logs import get_logger_provider
             from opentelemetry.sdk._logs import LoggerProvider
             provider = get_logger_provider()
@@ -617,92 +573,6 @@ class AgentEngineApp(A2aAgent):
         logging_client = google_cloud_logging.Client()
         self.logger = logging_client.logger(__name__)
 
-    def inspect_env(self) -> str:
-        """Inspects environment, credentials, and attempts a direct Gemini call."""
-        import traceback
-        import sys
-        import os
-        
-        token_info = ""
-        try:
-            import google.auth
-            credentials, project = google.auth.default(
-                scopes=['https://www.googleapis.com/auth/cloud-platform']
-            )
-            from google.auth.transport.requests import Request
-            credentials.refresh(Request())
-            token_info = f"Token present: {bool(credentials.token)} (Class: {credentials.__class__.__name__})"
-        except Exception as e:
-            token_info = f"Failed to load credentials: {e}"
-
-        direct_call_status = ""
-        try:
-            from google.genai import Client
-            from app.app_utils.env_resolver import get_project_id, get_region
-            proj_id = get_project_id()
-            loc = get_region()
-            client = Client(vertexai=True, project=proj_id, location=loc)
-            resp = client.models.generate_content(model="gemini-2.5-flash", contents="Hi")
-            direct_call_status = f"SUCCESS: {resp.text[:30]}..."
-        except Exception as e:
-            direct_call_status = f"FAILED: {e.__class__.__name__}: {e}\n{traceback.format_exc()}"
-
-        env_vars = {k: v for k, v in os.environ.items() if not k.endswith("KEY") and "PASSWORD" not in k and "SECRET" not in k}
-        
-        res = f"Python Executable: {sys.executable}\n"
-        res += f"Token Info: {token_info}\n"
-        res += f"Direct Call Status: {direct_call_status}\n"
-        res += f"Environment Variables:\n"
-        for k, v in env_vars.items():
-            res += f"  {k}: {v}\n"
-        return res
-
-    def test_token_access(self) -> str:
-        import google.auth
-        from google.auth.transport.requests import Request
-        import httpx
-        
-        res = ""
-        try:
-            credentials, project = google.auth.default(
-                scopes=['https://www.googleapis.com/auth/cloud-platform']
-            )
-            credentials.refresh(Request())
-            token = credentials.token
-            res += f"Token refreshed successfully. Length: {len(token) if token else 0}\n"
-            res += f"Credentials Class: {credentials.__class__.__name__}\n"
-            
-            try:
-                info_resp = httpx.get(f"https://oauth2.googleapis.com/tokeninfo?access_token={token}")
-                res += f"Tokeninfo Status: {info_resp.status_code}\nTokeninfo: {info_resp.text}\n"
-            except Exception as token_err:
-                res += f"Failed to get token info: {token_err}\n"
-                
-            meta_token = None
-            try:
-                meta_url = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
-                meta_resp = httpx.get(meta_url, headers={"Metadata-Flavor": "Google"})
-                res += f"Metadata Server Status: {meta_resp.status_code}\nMetadata Server Response: {meta_resp.text[:300]}\n"
-                if meta_resp.status_code == 200:
-                    meta_token = meta_resp.json().get("access_token")
-            except Exception as meta_err:
-                res += f"Metadata Server Failed: {meta_err}\n"
-                
-            active_token = meta_token if meta_token else token
-            card_url = "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/1097730318341/locations/us-central1/reasoningEngines/7101814323281920000/a2a/v1/card"
-            headers = {"Authorization": f"Bearer {active_token}"}
-            try:
-                card_resp = httpx.get(card_url, headers=headers)
-                res += f"Card Fetch Status: {card_resp.status_code}\nCard Response: {card_resp.text[:300]}\n"
-            except Exception as card_err:
-                res += f"Failed to fetch card: {card_err}\n"
-                
-        except Exception as e:
-            res += f"Error: {e}\n"
-            import traceback
-            res += traceback.format_exc()
-            
-        return res
 
     def register_feedback(self, feedback: dict[str, Any]) -> None:
         """Collect and log feedback."""
@@ -856,76 +726,7 @@ class AgentEngineApp(A2aAgent):
         except Exception as otel_err:
             print(f"⚠️ Failed to set OpenTelemetry span attributes in stream query: {otel_err}")
 
-        # --- DYNAMIC OTEL LOG PROCESSOR REGISTRATION ---
-        try:
-            from opentelemetry._logs import get_logger_provider
-            from opentelemetry.sdk._logs import LoggerProvider
 
-            provider = get_logger_provider()
-            if hasattr(provider, "_logger_provider"):
-                provider = provider._logger_provider
-
-            if isinstance(provider, LoggerProvider):
-                has_processor = any(
-                    p.__class__.__name__ == "BillingContextLogRecordProcessor"
-                    for p in getattr(provider, "_log_record_processors", [])
-                )
-                if not has_processor:
-                    from opentelemetry.sdk._logs import LogRecordProcessor
-
-                    class BillingContextLogRecordProcessor(LogRecordProcessor):
-                        def on_emit(self, log_record, context=None):
-                            try:
-                                # 1. Try tracing span attributes
-                                span = trace.get_current_span()
-                                if span and span.get_span_context().is_valid:
-                                    span_attribs = getattr(span, "attributes", None)
-                                    if span_attribs:
-                                        for key in ["org_id", "hub_id", "user_id", "gen_ai.request.model", "gen_ai_request_model", "provider", "latency_ms"]:
-                                            if key in span_attribs:
-                                                val = span_attribs[key]
-                                                log_record_inner = getattr(log_record, "log_record", None)
-                                                if log_record_inner:
-                                                    if not log_record_inner.attributes:
-                                                        log_record_inner.attributes = {}
-                                                    log_record_inner.attributes[key] = val
-                                                else:
-                                                    if not log_record.attributes:
-                                                        log_record.attributes = {}
-                                                    log_record.attributes[key] = val
-
-                                # 2. Fallback/overwrite with task-local ContextVars (extremely reliable)
-                                ctx_vars = {
-                                    "org_id": telemetry_org_id.get(),
-                                    "hub_id": telemetry_hub_id.get(),
-                                    "user_id": telemetry_user_id.get()
-                                }
-                                for key, val in ctx_vars.items():
-                                    if val is not None:
-                                        log_record_inner = getattr(log_record, "log_record", None)
-                                        if log_record_inner:
-                                            if not log_record_inner.attributes:
-                                                log_record_inner.attributes = {}
-                                            log_record_inner.attributes[key] = val
-                                        else:
-                                            if not log_record.attributes:
-                                                log_record.attributes = {}
-                                            log_record.attributes[key] = val
-                            except Exception:
-                                pass
-
-                        def force_flush(self, timeout_millis: int = 30000) -> bool:
-                            return True
-
-                        def shutdown(self) -> None:
-                            pass
-
-                    provider.add_log_record_processor(BillingContextLogRecordProcessor())
-                    import logging
-                    logging.info("BillingContextLogRecordProcessor dynamically registered successfully on LoggerProvider")
-        except Exception as otel_reg_err:
-            import logging
-            logging.warning("Failed to dynamically register BillingContextLogRecordProcessor: %s", otel_reg_err)
 
         if not self.agent_executor:
             self.set_up()
@@ -1053,8 +854,6 @@ class AgentEngineApp(A2aAgent):
         operations[""] = [
             *operations.get("", []), 
             "register_feedback", 
-            "inspect_env", 
-            "test_token_access", 
             "get_agent_card",
             "query",
         ]

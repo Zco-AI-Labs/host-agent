@@ -93,8 +93,6 @@ async def consultAgent(agentId: str, query: str) -> str:
             "Content-Type": "application/json"
         }
         
-        httpx_client = httpx.AsyncClient(headers=headers, timeout=90.0)
-        
         logger.info(f"📡 Consulting remote A2A subagent via ADK client: {agentId} ({card_url})")
         
         # Request metadata provider to securely propagate RBAC context and increment call depth
@@ -120,14 +118,6 @@ async def consultAgent(agentId: str, query: str) -> str:
         if not valid_name[0].isalpha() and valid_name[0] != '_':
             valid_name = '_' + valid_name
 
-        # Instantiate the Remote A2A Agent using the ADK Client
-        subagent = RemoteA2aAgent(
-            name=valid_name,
-            agent_card=card_url,
-            httpx_client=httpx_client,
-            a2a_request_meta_provider=request_meta_provider
-        )
-        
         # Construct dummy session context containing the user's specific query
         adk_event = AdkEvent(
             author="user",
@@ -149,13 +139,22 @@ async def consultAgent(agentId: str, query: str) -> str:
         )
         
         subagent_output = ""
-        async for ev in subagent.run_async(parent_context=parent_ctx):
-            if ev.output:
-                subagent_output += ev.output
-            elif ev.content and ev.content.parts:
-                for part in ev.content.parts:
-                    if part.text:
-                        subagent_output += part.text
+        async with httpx.AsyncClient(headers=headers, timeout=90.0) as httpx_client:
+            # Instantiate the Remote A2A Agent using the ADK Client
+            subagent = RemoteA2aAgent(
+                name=valid_name,
+                agent_card=card_url,
+                httpx_client=httpx_client,
+                a2a_request_meta_provider=request_meta_provider
+            )
+            
+            async for ev in subagent.run_async(parent_context=parent_ctx):
+                if ev.output:
+                    subagent_output += ev.output
+                elif ev.content and ev.content.parts:
+                    for part in ev.content.parts:
+                        if part.text:
+                            subagent_output += part.text
             
         # 3. Intercept directives and map to client actions
         try:

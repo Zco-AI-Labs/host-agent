@@ -39,13 +39,20 @@ try:
 except Exception as e:
     print(f"⚠️ Could not fetch agent profile from Firestore ({e}). Defaulting to profile: {iam_profile}")
 
+secret = os.getenv("HUBSCAPE_HMAC_SECRET")
+update_env_vars = "LOGS_BUCKET_NAME=hubscape-geap-telemetry-logs,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental"
+if secret:
+    update_env_vars += f",HUBSCAPE_HMAC_SECRET={secret}"
+else:
+    print("⚠️ WARNING: HUBSCAPE_HMAC_SECRET environment variable is missing. It will NOT be injected into the container.")
+
 cmd = [
     agents_cli_path, "deploy",
     "--project", PROJECT_ID,
     "--region", LOCATION,
     "--service-name", display_name,
     "--service-account", f"{iam_profile}@{PROJECT_ID}.iam.gserviceaccount.com",
-    "--update-env-vars", "LOGS_BUCKET_NAME=hubscape-geap-telemetry-logs,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental",
+    "--update-env-vars", update_env_vars,
     "--no-confirm-project"
 ]
 
@@ -63,14 +70,14 @@ try:
     import json
     
     backend_url = os.getenv("HUBSCAPE_BACKEND_URL", "http://localhost:8000")
-    secret = os.getenv("HUBSCAPE_HMAC_SECRET", "dev_secret_key_dont_use_in_prod")
+    sync_secret = os.getenv("HUBSCAPE_HMAC_SECRET") or "dev_secret_key_dont_use_in_prod"
     
     url = f"{backend_url.rstrip('/')}/api/agents/sync"
     req = urllib.request.Request(
         url,
         data=b"",
         headers={
-            "X-Hubscape-Secret": secret,
+            "X-Hubscape-Secret": sync_secret,
             "Content-Type": "application/json"
         },
         method="POST"

@@ -359,7 +359,12 @@ def require_tool_privilege(func):
             )
             return True
             
-        secret_key = os.environ.get("HUBSCAPE_HMAC_SECRET") or os.environ.get("HUBSCAPE_KMS_MASTER_KEY") or "dev_secret_key_dont_use_in_prod"
+        secret_key = os.environ.get("HUBSCAPE_HMAC_SECRET")
+        if not secret_key:
+            is_cloud = "K_SERVICE" in os.environ or "AIP_PREDICT_PORT" in os.environ
+            if is_cloud:
+                raise RuntimeError("CRITICAL CONFIGURATION ERROR: HUBSCAPE_HMAC_SECRET is missing in cloud environment!")
+            secret_key = "dev_secret_key_dont_use_in_prod"
             
         try:
             # Decode & Verify JWT HMAC
@@ -414,10 +419,7 @@ def require_tool_privilege(func):
                         if priv_info:
                             tools = priv_info.get("tools") or []
                             allowed_tools.extend(tools)
-                        else:
-                            # TODO: TEMPORARY BANDAID (Remove once hubscape-geap backend changes are deployed to live).
-                            # Fallback to handle old backend versions that send raw tool names in the capability token.
-                            allowed_tools.append(priv_id)
+
                 except Exception as read_err:
                     logging.getLogger(__name__).warning(f"⚠️ Failed to read/parse privileges.json: {read_err}")
                 
