@@ -39,20 +39,13 @@ try:
 except Exception as e:
     print(f"⚠️ Could not fetch agent profile from Firestore ({e}). Defaulting to profile: {iam_profile}")
 
-secret = os.getenv("HUBSCAPE_HMAC_SECRET")
-update_env_vars = "LOGS_BUCKET_NAME=hubscape-geap-telemetry-logs,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental"
-if secret:
-    update_env_vars += f",HUBSCAPE_HMAC_SECRET={secret}"
-else:
-    print("⚠️ WARNING: HUBSCAPE_HMAC_SECRET environment variable is missing. It will NOT be injected into the container.")
-
 cmd = [
     agents_cli_path, "deploy",
     "--project", PROJECT_ID,
     "--region", LOCATION,
     "--service-name", display_name,
     "--service-account", f"{iam_profile}@{PROJECT_ID}.iam.gserviceaccount.com",
-    "--update-env-vars", update_env_vars,
+    "--update-env-vars", "LOGS_BUCKET_NAME=hubscape-geap-telemetry-logs,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental",
     "--no-confirm-project"
 ]
 

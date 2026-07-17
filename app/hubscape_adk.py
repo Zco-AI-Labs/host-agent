@@ -334,6 +334,7 @@ import json
 import logging
 import jwt
 from cryptography.fernet import Fernet
+_cached_hmac_secret = None
 
 def require_tool_privilege(func):
     """
@@ -343,9 +344,12 @@ def require_tool_privilege(func):
     is_async = inspect.iscoroutinefunction(func)
 
     def verify_privilege():
-        context = get_context()
-        
-        token = context.raw_context.get("capability_token")
+        try:
+            context = get_context()
+            token = context.raw_context.get("capability_token")
+        except Exception:
+            token = None
+            
         is_mock_token = hasattr(token, "_mock_return_value") or type(token).__name__ == "MagicMock"
         if not token or is_mock_token:
             # If no token is provided, only allow it if we are running locally (no K_SERVICE / AIP_PREDICT_PORT)
@@ -359,12 +363,27 @@ def require_tool_privilege(func):
             )
             return True
             
-        secret_key = os.environ.get("HUBSCAPE_HMAC_SECRET")
-        if not secret_key:
-            is_cloud = "K_SERVICE" in os.environ or "AIP_PREDICT_PORT" in os.environ
-            if is_cloud:
-                raise RuntimeError("CRITICAL CONFIGURATION ERROR: HUBSCAPE_HMAC_SECRET is missing in cloud environment!")
-            secret_key = "dev_secret_key_dont_use_in_prod"
+        global _cached_hmac_secret
+        if _cached_hmac_secret is None:
+            env_secret = os.environ.get("HUBSCAPE_HMAC_SECRET")
+            if env_secret:
+                _cached_hmac_secret = env_secret
+            else:
+                is_cloud = "K_SERVICE" in os.environ or "AIP_PREDICT_PORT" in os.environ
+                if is_cloud:
+                    try:
+                        from google.cloud import secretmanager
+                        client = secretmanager.SecretManagerServiceClient()
+                        project_id = os.environ.get("GCP_PROJECT_ID") or "hubscape-geap"
+                        name = f"projects/{project_id}/secrets/HUBSCAPE_KMS_MASTER_KEY/versions/latest"
+                        response = client.access_secret_version(name=name)
+                        _cached_hmac_secret = response.payload.data.decode("UTF-8").strip()
+                    except Exception as e:
+                        raise RuntimeError(f"CRITICAL CONFIGURATION ERROR: Failed to access HUBSCAPE_KMS_MASTER_KEY from Secret Manager: {e}")
+                else:
+                    _cached_hmac_secret = "dev_secret_key_dont_use_in_prod"
+                    
+        secret_key = _cached_hmac_secret
             
         try:
             # Decode & Verify JWT HMAC
