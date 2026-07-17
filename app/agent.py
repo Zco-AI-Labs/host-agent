@@ -133,6 +133,11 @@ class HostAgent:
                 current_span.set_attribute("gen_ai.conversation_id", session_id)
                 current_span.set_attribute("gen_ai.request.model", root_agent.model.model_name)
                 current_span.set_attribute("provider", "vertex")
+                
+                # Determine query type (direct vs nested A2A) using call depth
+                depth = (context or {}).get("depth", 0)
+                request_type = "a2a" if depth > 0 else "direct"
+                current_span.set_attribute("gen_ai.request.type", request_type)
         except Exception as otel_err:
             print(f"⚠️ Failed to set OpenTelemetry span attributes: {otel_err}")
         # ----------------------------------------------------

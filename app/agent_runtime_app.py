@@ -302,6 +302,12 @@ class AgentEngineA2aExecutor(A2aAgentExecutor):
                 current_span.set_attribute("org_id", org_id or "unknown")
                 current_span.set_attribute("hub_id", hub_id or "unknown")
                 current_span.set_attribute("user_id", user_id_resolved or "unknown")
+                current_span.set_attribute("gen_ai.conversation_id", session_id_resolved)
+                
+                # Determine query type (direct vs nested A2A) using call depth
+                depth = metadata.get("depth", 0)
+                request_type = "a2a" if depth > 0 else "direct"
+                current_span.set_attribute("gen_ai.request.type", request_type)
         except Exception as otel_err:
             print(f"⚠️ Failed to set OpenTelemetry span attributes in executor: {otel_err}")
 
