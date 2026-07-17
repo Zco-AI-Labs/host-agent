@@ -336,6 +336,29 @@ import jwt
 from cryptography.fernet import Fernet
 _cached_hmac_secret = None
 
+def get_hmac_secret() -> str:
+    """Resolves and returns the HMAC/Fernet master secret key, caching it for subsequent calls."""
+    global _cached_hmac_secret
+    if _cached_hmac_secret is None:
+        env_secret = os.environ.get("HUBSCAPE_HMAC_SECRET")
+        if env_secret:
+            _cached_hmac_secret = env_secret
+        else:
+            is_cloud = "K_SERVICE" in os.environ or "AIP_PREDICT_PORT" in os.environ
+            if is_cloud:
+                try:
+                    from google.cloud import secretmanager
+                    client = secretmanager.SecretManagerServiceClient()
+                    project_id = os.environ.get("GCP_PROJECT_ID") or "hubscape-geap"
+                    name = f"projects/{project_id}/secrets/HUBSCAPE_KMS_MASTER_KEY/versions/latest"
+                    response = client.access_secret_version(name=name)
+                    _cached_hmac_secret = response.payload.data.decode("UTF-8").strip()
+                except Exception as e:
+                    raise RuntimeError(f"CRITICAL CONFIGURATION ERROR: Failed to access HUBSCAPE_KMS_MASTER_KEY from Secret Manager: {e}")
+            else:
+                _cached_hmac_secret = "dev_secret_key_dont_use_in_prod"
+    return _cached_hmac_secret
+
 def require_tool_privilege(func):
     """
     Decorator for agent python tools to enforce zero-trust tool-level RBAC.
@@ -363,27 +386,7 @@ def require_tool_privilege(func):
             )
             return True
             
-        global _cached_hmac_secret
-        if _cached_hmac_secret is None:
-            env_secret = os.environ.get("HUBSCAPE_HMAC_SECRET")
-            if env_secret:
-                _cached_hmac_secret = env_secret
-            else:
-                is_cloud = "K_SERVICE" in os.environ or "AIP_PREDICT_PORT" in os.environ
-                if is_cloud:
-                    try:
-                        from google.cloud import secretmanager
-                        client = secretmanager.SecretManagerServiceClient()
-                        project_id = os.environ.get("GCP_PROJECT_ID") or "hubscape-geap"
-                        name = f"projects/{project_id}/secrets/HUBSCAPE_KMS_MASTER_KEY/versions/latest"
-                        response = client.access_secret_version(name=name)
-                        _cached_hmac_secret = response.payload.data.decode("UTF-8").strip()
-                    except Exception as e:
-                        raise RuntimeError(f"CRITICAL CONFIGURATION ERROR: Failed to access HUBSCAPE_KMS_MASTER_KEY from Secret Manager: {e}")
-                else:
-                    _cached_hmac_secret = "dev_secret_key_dont_use_in_prod"
-                    
-        secret_key = _cached_hmac_secret
+        secret_key = get_hmac_secret()
             
         try:
             # Decode & Verify JWT HMAC
