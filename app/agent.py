@@ -1,4 +1,11 @@
 import os
+import sys
+
+# Ensure app directory is in sys.path before any local imports run
+app_dir = os.path.dirname(os.path.abspath(__file__))
+if app_dir not in sys.path:
+    sys.path.insert(0, app_dir)
+
 # Force regional Vertex AI routing unconditionally
 os.environ.pop("GOOGLE_GENAI_USE_ENTERPRISE", None)
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
