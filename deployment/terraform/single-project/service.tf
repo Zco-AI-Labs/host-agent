@@ -12,9 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Base64-encoded dummy source tarball for initial Agent Runtime creation.
-# CI/CD pipelines will update with actual source code after creation.
-# The file is pre-encoded to avoid binary corruption when read via Terraform.
 locals {
   dummy_source_b64 = trimspace(file("${path.module}/../shared/dummy_source.b64"))
 }
@@ -44,6 +41,18 @@ resource "google_vertex_ai_reasoning_engine" "app" {
         value = google_storage_bucket.logs_data_bucket.name
       }
 
+      # GOOGLE_CLOUD_PROJECT is reserved by Agent Runtime (the platform injects
+      # it) and rejected in deployment_spec.env; GOOGLE_CLOUD_LOCATION is allowed.
+      env {
+        name  = "GOOGLE_CLOUD_LOCATION"
+        value = "global"
+      }
+
+      env {
+        name  = "GOOGLE_GENAI_USE_VERTEXAI"
+        value = "True"
+      }
+
       env {
         name  = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
         value = "true"
@@ -59,21 +68,20 @@ resource "google_vertex_ai_reasoning_engine" "app" {
       inline_source {
         source_archive = local.dummy_source_b64
       }
-
-      python_spec {
-        entrypoint_module  = "app.agent_runtime_app"
-        entrypoint_object  = "agent_runtime"
-        requirements_file  = "app/app_utils/.requirements.txt"
-        version            = "3.12"
-      }
+      image_spec {}
     }
   }
 
-  # This lifecycle block prevents Terraform from overwriting the source code when it's
-  # updated by Agent Runtime deployments outside of Terraform (e.g., via CI/CD pipelines)
+  # Terraform creates the resource with a placeholder source build; CI/CD
+  # overwrites the same source_code_spec with the real code. The deploy writes
+  # source_code_spec, so the placeholder must use it too — a container_spec
+  # placeholder would be left alongside it and Agent Engine rejects the update.
+  # Ignore the spec and deployment_spec so Terraform never reverts the deployed agent.
   lifecycle {
     ignore_changes = [
+      spec[0].container_spec,
       spec[0].source_code_spec,
+      spec[0].deployment_spec,
     ]
   }
 
