@@ -72,6 +72,7 @@ telemetry_org_id = ContextVar("telemetry_org_id", default=None)
 telemetry_hub_id = ContextVar("telemetry_hub_id", default=None)
 telemetry_user_id = ContextVar("telemetry_user_id", default=None)
 telemetry_conversation_id = ContextVar("telemetry_conversation_id", default=None)
+request_runner_ctx = ContextVar("request_runner_ctx", default=None)
 
 from opentelemetry.sdk._logs import LogRecordProcessor
 from opentelemetry import trace
@@ -194,6 +195,12 @@ class ActionInterceptingEventQueue(EventQueue):
 
 class AgentEngineA2aExecutor(A2aAgentExecutor):
     """Custom A2A Executor that intercepts requests to inject RemoteContext and handle sessions."""
+    async def _resolve_runner(self) -> Runner:
+        scoped = request_runner_ctx.get()
+        if scoped is not None:
+            return scoped
+        return await super()._resolve_runner()
+
     async def execute(
         self,
         context: RequestContext,
@@ -278,13 +285,29 @@ class AgentEngineA2aExecutor(A2aAgentExecutor):
 
         interceptor = ActionInterceptingEventQueue(event_queue, remote_ctx)
         
-        from app.agent import root_agent
-        base_instruction = root_agent.instruction or ""
+        # Resolve the runner and clone the agent to ensure request-scoped concurrency safety
+        base_runner = await super()._resolve_runner()
+        cloned_agent = base_runner.agent.clone()
+        
+        base_instruction = base_runner.agent.instruction or ""
         
         # Check for system_instruction from context/metadata
         system_instruction = metadata.get("system_instruction")
         if system_instruction:
-            root_agent.instruction = system_instruction
+            cloned_agent.instruction = system_instruction
+            
+        # Instantiate a request-scoped runner to avoid polluting the process-wide singleton
+        scoped_runner = Runner(
+            agent=cloned_agent,
+            app_name=base_runner.app_name,
+            session_service=base_runner.session_service,
+            artifact_service=getattr(base_runner, "artifact_service", None),
+            memory_service=getattr(base_runner, "memory_service", None),
+            credential_service=getattr(base_runner, "credential_service", None),
+            auto_create_session=getattr(base_runner, "auto_create_session", False),
+        )
+        
+        token = request_runner_ctx.set(scoped_runner)
             
         session_id_resolved = metadata.get("sessionId") or f"session_{user_id_resolved}_{hub_id}"
         
@@ -342,7 +365,7 @@ class AgentEngineA2aExecutor(A2aAgentExecutor):
             with hubscape_adk.context_session(remote_ctx):
                 await super().execute(context, interceptor)
         finally:
-            root_agent.instruction = base_instruction
+            request_runner_ctx.reset(token)
 
         # 2. Persist ADK Session back to Firestore
         try:
