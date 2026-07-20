@@ -104,6 +104,8 @@ async def consultAgent(agentId: str, query: str) -> str:
                 "org_id": ctx.auth.org_id,
                 "hubId": ctx.auth.hub_id,
                 "hub_id": ctx.auth.hub_id,
+                "workspaceType": raw_ctx.get("workspaceType") or ("hub" if ctx.auth.hub_id else "organization"),
+                "workspaceId": raw_ctx.get("workspaceId") or ctx.auth.hub_id or ctx.auth.org_id,
                 "mode": raw_ctx.get("mode"),
                 "accessible_agents": accessible_agents,
                 "depth": current_depth + 1,
