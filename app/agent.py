@@ -45,6 +45,16 @@ def load_local_tools(scripts_dir: str) -> list:
 # Module-level discovery symbols for ADK CLI
 runtime_dir = os.path.dirname(os.path.abspath(__file__))
 scripts_dir = os.path.join(runtime_dir, "scripts")
+
+# Statically import scripts to ensure Vertex AI packaging bundles them in the cloud deployment
+from app.scripts import (
+    consult_agent,
+    discover_agents,
+    inspect_env,
+    run_agent_parallel,
+    suggest_queries,
+)
+
 tools = load_local_tools(scripts_dir)
 
 from app.app_utils.vertex_gemini import get_model
