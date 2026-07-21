@@ -74,7 +74,7 @@ if not desc_m:
 
 agent_name = name_m.group(1).strip().replace('-', '_')
 agent_description = desc_m.group(1).strip()
-system_instruction = skill_content[fm_match.end():].strip()
+base_skill_instruction = skill_content[fm_match.end():].strip()
 
 scripts_dir = os.path.join(runtime_dir, "scripts")
 
@@ -95,7 +95,7 @@ root_agent = AdkAgent(
     model=get_model("gemini-2.5-flash"),
     name=agent_name,
     description=agent_description,
-    instruction=system_instruction,
+    instruction=base_skill_instruction,
     tools=tools
 )
 
@@ -194,9 +194,13 @@ class HostAgent:
                         "actions": remote_ctx.actions
                     })
         
-        # 1. Resolve dynamic system instructions from context
-        system_instruction = (context or {}).get("system_instruction") or "You are the Hubscape central Host agent."
-        root_agent.instruction = system_instruction
+        # 1. Resolve dynamic system instructions from context and merge with base skill instructions
+        dynamic_ctx_prompt = (context or {}).get("system_instruction") or ""
+        if dynamic_ctx_prompt:
+            root_agent.instruction = f"{base_skill_instruction}\n\n{dynamic_ctx_prompt}"
+        else:
+            root_agent.instruction = base_skill_instruction
+
         
         with hubscape_adk.context_session(remote_ctx):
             if not self.runner:
