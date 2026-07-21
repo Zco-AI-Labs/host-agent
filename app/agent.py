@@ -45,12 +45,37 @@ def load_local_tools(scripts_dir: str) -> list:
                         func = getattr(module, camel_name, None)
                     if func and callable(func):
                         tools.append(func)
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to load tool {module_name} from {file_path}: {e}", exc_info=True)
     return tools
 
-# Module-level discovery symbols for ADK CLI
+# 1. Require SKILL.md as the Single Source of Truth for metadata (name, description) and instructions
 runtime_dir = os.path.dirname(os.path.abspath(__file__))
+skill_md_path = os.path.join(runtime_dir, "SKILL.md")
+if not os.path.exists(skill_md_path):
+    raise FileNotFoundError(f"Required agent definition file missing: {skill_md_path}")
+
+with open(skill_md_path, "r", encoding="utf-8") as f:
+    skill_content = f.read()
+
+fm_match = re.match(r"^---\s*\n(.*?)\n---\s*\n", skill_content, flags=re.DOTALL)
+if not fm_match:
+    raise ValueError(f"SKILL.md is missing required YAML frontmatter header (--- ... ---): {skill_md_path}")
+
+fm_text = fm_match.group(1)
+name_m = re.search(r'^name:\s*["\']?([^"\'\n]+)["\']?', fm_text, re.MULTILINE)
+if not name_m:
+    raise ValueError(f"SKILL.md frontmatter is missing required 'name:' field: {skill_md_path}")
+
+desc_m = re.search(r'^description:\s*["\']?([^"\'\n]+)["\']?', fm_text, re.MULTILINE)
+if not desc_m:
+    raise ValueError(f"SKILL.md frontmatter is missing required 'description:' field: {skill_md_path}")
+
+agent_name = name_m.group(1).strip().replace('-', '_')
+agent_description = desc_m.group(1).strip()
+system_instruction = skill_content[fm_match.end():].strip()
+
 scripts_dir = os.path.join(runtime_dir, "scripts")
 
 # Statically import scripts to ensure Vertex AI packaging bundles them in the cloud deployment
@@ -68,9 +93,9 @@ from app.app_utils.vertex_gemini import get_model
 
 root_agent = AdkAgent(
     model=get_model("gemini-2.5-flash"),
-    name='host_agent',
-    description='Managed GEAP Host Orchestrator.',
-    instruction="You are the Hubscape central Host agent.",
+    name=agent_name,
+    description=agent_description,
+    instruction=system_instruction,
     tools=tools
 )
 
@@ -103,7 +128,7 @@ class HostAgent:
             pass
         
 
-        import hubscape_adk
+        from app.core import hubscape_adk
         import uuid
         user_id = (context or {}).get("userId") or (context or {}).get("user_id") or "anonymous_user"
         org_id = (context or {}).get("orgId") or (context or {}).get("org_id")

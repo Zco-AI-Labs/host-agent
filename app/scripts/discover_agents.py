@@ -1,5 +1,5 @@
 import logging
-import hubscape_adk
+from app.core import hubscape_adk
 
 logger = logging.getLogger(__name__)
 

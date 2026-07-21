@@ -3,7 +3,7 @@ import asyncio
 import httpx
 import google.auth
 import google.auth.transport.requests
-import hubscape_adk
+from app.core import hubscape_adk
 from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
 from google.adk.events.event import Event as AdkEvent
 from google.genai import types as genai_types

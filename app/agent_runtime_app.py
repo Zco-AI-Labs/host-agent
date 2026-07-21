@@ -66,7 +66,7 @@ from google.adk.sessions import InMemorySessionService
 from google.cloud import logging as google_cloud_logging
 from vertexai.preview.reasoning_engines import A2aAgent
 
-import hubscape_adk
+from app.core import hubscape_adk
 from contextvars import ContextVar
 telemetry_org_id = ContextVar("telemetry_org_id", default=None)
 telemetry_hub_id = ContextVar("telemetry_hub_id", default=None)
@@ -712,7 +712,7 @@ class AgentEngineApp(A2aAgent):
                     return
         
         import uuid
-        import hubscape_adk
+        from app.core import hubscape_adk
         from app.agent import root_agent
         from google.genai import types
         from google.adk.agents.run_config import RunConfig, StreamingMode

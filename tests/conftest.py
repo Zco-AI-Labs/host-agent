@@ -1,4 +1,14 @@
+import sys
+import os
 import pytest
+
+root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+app_dir = os.path.join(root_dir, "app")
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
+if app_dir not in sys.path:
+    sys.path.insert(0, app_dir)
+
 from unittest.mock import patch
 from google.adk.models.google_llm import Gemini
 from google.adk.models.llm_response import LlmResponse

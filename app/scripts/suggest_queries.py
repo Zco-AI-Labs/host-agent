@@ -1,4 +1,4 @@
-import hubscape_adk
+from app.core import hubscape_adk
 
 @hubscape_adk.require_tool_privilege
 def suggestQueries(queries: list[str]) -> dict:

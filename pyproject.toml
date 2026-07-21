@@ -116,6 +116,8 @@ packages = ["app","frontend"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "app/privileges.json" = "app/privileges.json"
+"app/SKILL.md" = "app/SKILL.md"
+"app/core/hubscape_adk.py" = "app/core/hubscape_adk.py"
 
 [tool.uv]
 override-dependencies = ["google-cloud-aiplatform==1.149.0"]
