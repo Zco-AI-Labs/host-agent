@@ -102,7 +102,13 @@ async def run_agent_parallel(requests: list) -> dict:
                 card_url = card_url.rstrip("/") + "/v1/card"
                 
             try:
-                # Request metadata provider to securely propagate RBAC context and increment call depth
+                session_id = raw_ctx.get("sessionId") or raw_ctx.get("session_id")
+                if not session_id:
+                    logger.warning("⚠️ No explicit sessionId found in raw_ctx; constructing fallback session ID.")
+                    session_id = f"session_{ctx.auth.get_user_id() or 'guest'}_{ctx.auth.hub_id or 'platform'}"
+
+
+                # Request metadata provider to securely propagate RBAC context, session ID, and increment call depth
                 def request_meta_provider(invocation_context, a2a_message):
                     return {
                         "userId": ctx.auth.get_user_id(),
@@ -111,6 +117,8 @@ async def run_agent_parallel(requests: list) -> dict:
                         "org_id": ctx.auth.org_id,
                         "hubId": ctx.auth.hub_id,
                         "hub_id": ctx.auth.hub_id,
+                        "sessionId": session_id,
+                        "session_id": session_id,
                         "accessible_agents": accessible_agents,
                         "depth": current_depth + 1,
                         "capability_token": raw_ctx.get("capability_token")
@@ -127,18 +135,19 @@ async def run_agent_parallel(requests: list) -> dict:
                     author="user",
                     content=genai_types.Content(parts=[genai_types.Part.from_text(text=query)])
                 )
-                dummy_session = Session(
-                    id="dummy_parallel_session",
+                parent_session = Session(
+                    id=session_id,
                     app_name="run_agent_parallel",
-                    user_id="dummy_user",
+                    user_id=ctx.auth.get_user_id() or "anonymous_user",
                     state={},
                     events=[adk_event]
                 )
                 parent_ctx = InvocationContext(
-                    invocation_id="dummy_parallel_invocation",
+                    invocation_id=f"inv_parallel_{session_id}",
                     branch=0,
-                    session=dummy_session
+                    session=parent_session
                 )
+
                 
                 collected_chunks = []
                 async for ev in subagent.run_async(parent_context=parent_ctx):

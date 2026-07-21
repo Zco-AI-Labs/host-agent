@@ -95,7 +95,13 @@ async def consultAgent(agentId: str, query: str) -> str:
         
         logger.info(f"📡 Consulting remote A2A subagent via ADK client: {agentId} ({card_url})")
         
-        # Request metadata provider to securely propagate RBAC context and increment call depth
+        session_id = raw_ctx.get("sessionId") or raw_ctx.get("session_id")
+        if not session_id:
+            logger.warning("⚠️ No explicit sessionId found in raw_ctx; constructing fallback session ID.")
+            session_id = f"session_{ctx.auth.get_user_id() or 'guest'}_{ctx.auth.hub_id or 'platform'}"
+
+
+        # Request metadata provider to securely propagate RBAC context, session ID, and increment call depth
         def request_meta_provider(invocation_context, a2a_message):
             return {
                 "userId": ctx.auth.get_user_id(),
@@ -104,6 +110,8 @@ async def consultAgent(agentId: str, query: str) -> str:
                 "org_id": ctx.auth.org_id,
                 "hubId": ctx.auth.hub_id,
                 "hub_id": ctx.auth.hub_id,
+                "sessionId": session_id,
+                "session_id": session_id,
                 "workspaceType": raw_ctx.get("workspaceType") or ("hub" if ctx.auth.hub_id else "organization"),
                 "workspaceId": raw_ctx.get("workspaceId") or ctx.auth.hub_id or ctx.auth.org_id,
                 "mode": raw_ctx.get("mode"),
@@ -123,25 +131,26 @@ async def consultAgent(agentId: str, query: str) -> str:
         if valid_name and not valid_name[0].isalpha() and valid_name[0] != '_':
             valid_name = '_' + valid_name
 
-        # Construct dummy session context containing the user's specific query
+        # Construct parent session context containing the active session_id and user query
         adk_event = AdkEvent(
             author="user",
             content=genai_types.Content(parts=[genai_types.Part.from_text(text=query)])
         )
-        dummy_session = Session(
-            id="dummy_session_id",
+        parent_session = Session(
+            id=session_id,
             app_name="consult_agent",
-            user_id="dummy_user",
+            user_id=ctx.auth.get_user_id() or "anonymous_user",
             state={},
             events=[adk_event]
         )
         from google.adk.sessions.in_memory_session_service import InMemorySessionService
         parent_ctx = InvocationContext(
-            invocation_id="dummy_invocation_id",
+            invocation_id=f"inv_{session_id}",
             branch="0",
-            session=dummy_session,
+            session=parent_session,
             session_service=InMemorySessionService()
         )
+
         
         subagent_output = ""
         async with httpx.AsyncClient(headers=headers, timeout=90.0) as httpx_client:
