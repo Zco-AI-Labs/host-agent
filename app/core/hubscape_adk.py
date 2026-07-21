@@ -306,6 +306,18 @@ class RemoteContext:
         self.actions.append(action_payload)
         return {"status": "success", "message": "Custom UI layout queued."}
 
+    def close_widget(self, message_id: Optional[str] = None, result_text: Optional[str] = None) -> dict:
+        """Registers a CLOSE_AGENT_WIDGET client action directive to close/unmount an active widget."""
+        action_payload = {
+            "type": "CLOSE_AGENT_WIDGET",
+            "payload": {
+                "messageId": message_id,
+                "resultText": result_text or "✅ Widget closed."
+            }
+        }
+        self.actions.append(action_payload)
+        return {"status": "success", "message": "Close widget directive queued."}
+
     def send_otp(self, phone_number: str) -> dict:
         """
         Sends an SMS OTP code to the target phone number via the Hubscape central backend.
