@@ -78,6 +78,9 @@ from opentelemetry.sdk._logs import LogRecordProcessor
 from opentelemetry import trace
 
 class BillingContextLogRecordProcessor(LogRecordProcessor):
+    def emit(self, log_record, context=None):
+        self.on_emit(log_record, context)
+
     def on_emit(self, log_record, context=None):
         try:
             # 1. Try tracing span attributes
@@ -732,9 +735,26 @@ class AgentEngineApp(A2aAgent):
             raw_context=context
         )
         
+        if not self.agent_executor:
+            self.set_up()
+        base_runner = await self.agent_executor._resolve_runner()
+        cloned_agent = base_runner.agent.clone()
+
         system_instruction = (context or {}).get("system_instruction")
         if system_instruction:
-            root_agent.instruction = system_instruction
+            cloned_agent.instruction = system_instruction
+
+        from google.adk.runners import Runner
+        runner = Runner(
+            agent=cloned_agent,
+            app_name=base_runner.app_name,
+            session_service=base_runner.session_service,
+            artifact_service=base_runner.artifact_service,
+            memory_service=base_runner.memory_service,
+            credential_service=base_runner.credential_service,
+            auto_create_session=base_runner.auto_create_session
+        )
+        token = request_runner_ctx.set(runner)
 
         session_id_resolved = session_id or (context or {}).get("sessionId") or f"session_{user_id_resolved}_{hub_id}"
 
@@ -755,86 +775,86 @@ class AgentEngineApp(A2aAgent):
         except Exception as otel_err:
             print(f"⚠️ Failed to set OpenTelemetry span attributes in stream query: {otel_err}")
 
+        try:
+            with hubscape_adk.context_session(remote_ctx):
+                # Try to restore session trajectory from Firestore using ADK serialization
+                try:
+                    session_doc = remote_ctx.get(scope="user", collection_name="sessions", doc_id=session_id_resolved)
+                    if session_doc and "adk_session" in session_doc:
+                        adk_session_json = session_doc["adk_session"]
+                        from google.adk.sessions import Session
+                        session_obj = Session.model_validate_json(adk_session_json)
+                        
+                        # Inject loaded session into session service cache
+                        session_service = runner.session_service
+                        app_name = adk_app.name
+                        uid = session_obj.user_id
+                        sid = session_obj.id
+                        
+                        if app_name not in session_service.sessions:
+                            session_service.sessions[app_name] = {}
+                        if uid not in session_service.sessions[app_name]:
+                            session_service.sessions[app_name][uid] = {}
+                        session_service.sessions[app_name][uid][sid] = session_obj
+                        print(f"🔄 Resumed ADK GEAP Session in async_stream_query: {session_id_resolved}")
+                    else:
+                        print(f"🌱 Starting New ADK GEAP Session in async_stream_query: {session_id_resolved}")
+                except Exception as restore_err:
+                    print(f"⚠️ Non-critical: Failed to restore session trajectory: {restore_err}")
 
-
-        if not self.agent_executor:
-            self.set_up()
-        runner = await self.agent_executor._resolve_runner()
-
-        with hubscape_adk.context_session(remote_ctx):
-            # Try to restore session trajectory from Firestore using ADK serialization
-            try:
-                session_doc = remote_ctx.get(scope="user", collection_name="sessions", doc_id=session_id_resolved)
-                if session_doc and "adk_session" in session_doc:
-                    adk_session_json = session_doc["adk_session"]
-                    from google.adk.sessions import Session
-                    session_obj = Session.model_validate_json(adk_session_json)
-                    
-                    # Inject loaded session into session service cache
-                    session_service = runner.session_service
-                    app_name = adk_app.name
-                    uid = session_obj.user_id
-                    sid = session_obj.id
-                    
-                    if app_name not in session_service.sessions:
-                        session_service.sessions[app_name] = {}
-                    if uid not in session_service.sessions[app_name]:
-                        session_service.sessions[app_name][uid] = {}
-                    session_service.sessions[app_name][uid][sid] = session_obj
-                    print(f"🔄 Resumed ADK GEAP Session in async_stream_query: {session_id_resolved}")
-                else:
-                    print(f"🌱 Starting New ADK GEAP Session in async_stream_query: {session_id_resolved}")
-            except Exception as restore_err:
-                print(f"⚠️ Non-critical: Failed to restore session trajectory: {restore_err}")
-
-            new_message = types.Content(
-                parts=[types.Part.from_text(text=message)]
-            )
-
-            run_cfg = None
-            if run_config:
-                if isinstance(run_config, dict):
-                    run_cfg = RunConfig.model_validate(run_config)
-                else:
-                    run_cfg = run_config
-            if not run_cfg:
-                run_cfg = RunConfig(streaming_mode=StreamingMode.SSE)
-
-            async for event in runner.run_async(
-                new_message=new_message,
-                user_id=user_id,
-                session_id=session_id_resolved,
-                run_config=run_cfg,
-                **kwargs
-            ):
-                yield _utils.dump_event_for_json(event)
-
-            # Yield custom actions if any were collected
-            actions = getattr(remote_ctx, "actions", [])
-            if actions:
-                yield {"actions": actions}
-
-            # Retrieve updated session state and persist back to Firestore
-            try:
-                session_service = runner.session_service
-                updated_session = await session_service.get_session(
-                    app_name=adk_app.name,
-                    user_id=user_id_resolved,
-                    session_id=session_id_resolved
+                new_message = types.Content(
+                    parts=[types.Part.from_text(text=message)]
                 )
-                if updated_session:
-                    serialized_json = updated_session.model_dump_json()
-                    remote_ctx.save(
-                        scope="user",
-                        collection_name="sessions",
-                        doc_id=session_id_resolved,
-                        data={
-                            "adk_session": serialized_json
-                        }
+
+                run_cfg = None
+                if run_config:
+                    if isinstance(run_config, dict):
+                        run_cfg = RunConfig.model_validate(run_config)
+                    else:
+                        run_cfg = run_config
+                if not run_cfg:
+                    run_cfg = RunConfig(streaming_mode=StreamingMode.SSE)
+
+                async for event in runner.run_async(
+                    new_message=new_message,
+                    user_id=user_id,
+                    session_id=session_id_resolved,
+                    run_config=run_cfg,
+                    **kwargs
+                ):
+                    yield _utils.dump_event_for_json(event)
+
+                # Yield custom actions if any were collected
+                actions = getattr(remote_ctx, "actions", [])
+                if actions:
+                    yield {"actions": actions}
+
+                # Retrieve updated session state and persist back to Firestore
+                try:
+                    session_service = runner.session_service
+                    updated_session = await session_service.get_session(
+                        app_name=adk_app.name,
+                        user_id=user_id_resolved,
+                        session_id=session_id_resolved
                     )
-                    print(f"💾 Persisted ADK GEAP Session trajectory for {session_id_resolved}")
-            except Exception as save_err:
-                print(f"⚠️ Non-critical: Failed to save session trajectory: {save_err}")
+                    if updated_session:
+                        serialized_json = updated_session.model_dump_json()
+                        remote_ctx.save(
+                            scope="user",
+                            collection_name="sessions",
+                            doc_id=session_id_resolved,
+                            data={
+                                "adk_session": serialized_json
+                            }
+                        )
+                        print(f"💾 Persisted ADK GEAP Session trajectory for {session_id_resolved}")
+                except Exception as save_err:
+                    print(f"⚠️ Non-critical: Failed to save session trajectory: {save_err}")
+        finally:
+            try:
+                request_runner_ctx.reset(token)
+            except Exception:
+                pass
 
     def get_agent_card(self) -> dict:
         """

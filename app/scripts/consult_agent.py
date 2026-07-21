@@ -114,10 +114,13 @@ async def consultAgent(agentId: str, query: str) -> str:
                 "storageBucket": raw_ctx.get("storageBucket")
             }
 
+        if not agentId or not str(agentId).strip():
+            return json.dumps({"text": "Failed to consult subagent: agentId was empty or invalid."})
+
         # Normalize the agent ID to a valid Python identifier
         import re
-        valid_name = re.sub(r'[^a-zA-Z0-9_]', '_', agentId)
-        if not valid_name[0].isalpha() and valid_name[0] != '_':
+        valid_name = re.sub(r'[^a-zA-Z0-9_]', '_', str(agentId))
+        if valid_name and not valid_name[0].isalpha() and valid_name[0] != '_':
             valid_name = '_' + valid_name
 
         # Construct dummy session context containing the user's specific query

@@ -74,20 +74,7 @@ root_agent = AdkAgent(
     tools=tools
 )
 
-# Dynamically patch AdkAgent to use a thread-safe, task-local ContextVar for instruction
-from contextvars import ContextVar
-_active_instruction = ContextVar("_active_instruction", default=None)
-_default_instruction = "You are the Hubscape central Host agent."
 
-@property
-def dynamic_instruction(self):
-    return _active_instruction.get() or _default_instruction
-
-@dynamic_instruction.setter
-def dynamic_instruction(self, value):
-    _active_instruction.set(value)
-
-AdkAgent.instruction = dynamic_instruction
 
 class HostAgent:
     def __init__(self):
