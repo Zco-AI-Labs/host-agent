@@ -152,14 +152,19 @@ async def consultAgent(agentId: str, query: str) -> str:
                 httpx_client=httpx_client,
                 a2a_request_meta_provider=request_meta_provider
             )
-            
+            collected_chunks = []
             async for ev in subagent.run_async(parent_context=parent_ctx):
-                if ev.output:
-                    subagent_output += ev.output
-                elif ev.content and ev.content.parts:
-                    for part in ev.content.parts:
-                        if part.text:
-                            subagent_output += part.text
+                out = getattr(ev, "output", None)
+                if not out and getattr(ev, "content", None) and getattr(ev.content, "parts", None):
+                    text_parts = [p.text for p in ev.content.parts if getattr(p, "text", None)]
+                    if text_parts:
+                        out = "\n".join(text_parts)
+                if out and isinstance(out, str) and out.strip():
+                    clean_out = out.strip()
+                    if not collected_chunks or clean_out != collected_chunks[-1].strip():
+                        collected_chunks.append(clean_out)
+            
+            subagent_output = "\n".join(collected_chunks)
             
         # 3. Intercept directives and map to client actions
         try:

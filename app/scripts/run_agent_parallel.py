@@ -140,14 +140,19 @@ async def run_agent_parallel(requests: list) -> dict:
                     session=dummy_session
                 )
                 
-                output = ""
+                collected_chunks = []
                 async for ev in subagent.run_async(parent_context=parent_ctx):
-                    if ev.output:
-                        output += ev.output
-                    elif ev.content and ev.content.parts:
-                        for part in ev.content.parts:
-                            if part.text:
-                                output += part.text
+                    out = getattr(ev, "output", None)
+                    if not out and getattr(ev, "content", None) and getattr(ev.content, "parts", None):
+                        text_parts = [p.text for p in ev.content.parts if getattr(p, "text", None)]
+                        if text_parts:
+                            out = "\n".join(text_parts)
+                    if out and isinstance(out, str) and out.strip():
+                        clean_out = out.strip()
+                        if not collected_chunks or clean_out != collected_chunks[-1].strip():
+                            collected_chunks.append(clean_out)
+                
+                output = "\n".join(collected_chunks)
                 return agent_id, output
             except Exception as e:
                 return agent_id, f"Error: {str(e)}"
