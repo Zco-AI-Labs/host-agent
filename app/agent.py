@@ -197,7 +197,7 @@ class HostAgent:
         # 1. Resolve dynamic system instructions from context and merge with base skill instructions
         dynamic_ctx_prompt = (context or {}).get("system_instruction") or ""
         if dynamic_ctx_prompt:
-            root_agent.instruction = f"{base_skill_instruction}\n\n{dynamic_ctx_prompt}"
+            root_agent.instruction = f"[IDENTITY & PERSONA]\n{dynamic_ctx_prompt}\n\n[CORE ORCHESTRATION & MEMORY DIRECTIVES]\n{base_skill_instruction}"
         else:
             root_agent.instruction = base_skill_instruction
 
