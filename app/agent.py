@@ -277,16 +277,27 @@ class HostAgent:
             # Pre-turn Memory Bank Search
             if memory_service and user_id and user_id != "anonymous_user":
                 try:
-                    memories = await memory_service.search_memory(
+                    res = await memory_service.search_memory(
                         app_name='host-agent',
                         user_id=memory_user_id,
                         query=parsed_question
                     )
-                    if memories:
-                        memory_text = "\n".join([f"- {m.content}" for m in memories if getattr(m, 'content', None)])
-                        if memory_text.strip():
-                            root_agent.instruction += f"\n\n[USER LONG-TERM MEMORIES & PREFERENCES]\n{memory_text}\n"
-                            print(f"🧠 Injected {len(memories)} retrieved user memories into turn context (scope={memory_user_id})")
+                    memories = getattr(res, "memories", res) or []
+                    memory_lines = []
+                    for m in memories:
+                        content_val = getattr(m, "content", None)
+                        if content_val:
+                            if hasattr(content_val, "parts"):
+                                parts_text = " ".join([p.text for p in content_val.parts if hasattr(p, "text") and p.text])
+                                if parts_text.strip():
+                                    memory_lines.append(f"- {parts_text.strip()}")
+                            elif isinstance(content_val, str) and content_val.strip():
+                                memory_lines.append(f"- {content_val.strip()}")
+
+                    if memory_lines:
+                        memory_text = "\n".join(memory_lines)
+                        root_agent.instruction += f"\n\n[USER LONG-TERM MEMORIES & PREFERENCES]\n{memory_text}\n"
+                        print(f"🧠 Injected {len(memory_lines)} retrieved user memories into turn context (scope={memory_user_id})")
                 except Exception as mem_search_err:
                     print(f"⚠️ Memory search non-critical: {mem_search_err}")
 
@@ -332,16 +343,17 @@ class HostAgent:
                     )
                     print(f"💾 Persisted ADK GEAP Session trajectory for {session_id}")
 
-                    # Post-turn Memory Bank Ingestion
-                    if memory_service:
-                        try:
-                            # Re-key session user_id to tenant-isolated key before memory ingestion
-                            session_copy = updated_session.model_copy()
-                            session_copy.user_id = memory_user_id
-                            await memory_service.add_session_to_memory(session_copy)
-                            print(f"🧠 Ingested session turn to VertexAiMemoryBankService (scope={memory_user_id})")
-                        except Exception as mem_ingest_err:
-                            print(f"⚠️ Memory ingestion non-critical: {mem_ingest_err}")
+                # Instant Direct Memory Bank Ingestion
+                if memory_service and user_id and user_id != "anonymous_user":
+                    try:
+                        from google.adk.memory.base_memory_service import MemoryEntry
+                        turn_summary = f"User: {parsed_question}\nHost: {text_response}"
+                        content_obj = types.Content(parts=[types.Part.from_text(text=turn_summary)])
+                        mem_entry = MemoryEntry(content=content_obj)
+                        await memory_service.add_memory(app_name='host-agent', user_id=memory_user_id, memories=[mem_entry])
+                        print(f"🧠 Instant direct memory ingested to VertexAiMemoryBankService (scope={memory_user_id})")
+                    except Exception as mem_ingest_err:
+                        print(f"⚠️ Memory ingestion non-critical: {mem_ingest_err}")
             except Exception as save_err:
                 print(f"⚠️ Non-critical: Failed to save session trajectory: {save_err}")
                 
