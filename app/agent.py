@@ -256,6 +256,22 @@ class HostAgent:
             except Exception as restore_err:
                 print(f"⚠️ Non-critical: Failed to restore session trajectory: {restore_err}")
 
+            # Pre-turn Memory Bank Search
+            if memory_service and user_id and user_id != "anonymous_user":
+                try:
+                    memories = await memory_service.search_memory(
+                        app_name='host-agent',
+                        user_id=user_id,
+                        query=parsed_question
+                    )
+                    if memories:
+                        memory_text = "\n".join([f"- {m.content}" for m in memories if getattr(m, 'content', None)])
+                        if memory_text.strip():
+                            root_agent.instruction += f"\n\n[USER LONG-TERM MEMORIES & PREFERENCES]\n{memory_text}\n"
+                            print(f"🧠 Injected {len(memories)} retrieved user memories into turn context")
+                except Exception as mem_search_err:
+                    print(f"⚠️ Memory search non-critical: {mem_search_err}")
+
             new_message = types.Content(
                 parts=[types.Part.from_text(text=parsed_question)]
             )
@@ -278,7 +294,7 @@ class HostAgent:
             
             text_response = "\n".join(collected_outputs)
             
-            # 3. Retrieve updated session state and persist back to Firestore
+            # 3. Retrieve updated session state, ingest to Memory Bank, and persist back to Firestore
             try:
                 session_service = self.runner.session_service
                 updated_session = await session_service.get_session(
@@ -297,6 +313,14 @@ class HostAgent:
                         }
                     )
                     print(f"💾 Persisted ADK GEAP Session trajectory for {session_id}")
+
+                    # Post-turn Memory Bank Ingestion
+                    if memory_service:
+                        try:
+                            await memory_service.add_session_to_memory(updated_session)
+                            print(f"🧠 Ingested session turn to VertexAiMemoryBankService for user {user_id}")
+                        except Exception as mem_ingest_err:
+                            print(f"⚠️ Memory ingestion non-critical: {mem_ingest_err}")
             except Exception as save_err:
                 print(f"⚠️ Non-critical: Failed to save session trajectory: {save_err}")
                 
