@@ -806,20 +806,23 @@ class AgentEngineApp(A2aAgent):
                 except Exception as restore_err:
                     print(f"⚠️ Non-critical: Failed to restore session trajectory: {restore_err}")
 
+                # Tenant-Isolated Memory User Key (Prevents cross-org data leakage)
+                memory_user_id = f"{org_id}:{user_id_resolved}" if org_id else user_id_resolved
+
                 # Pre-turn Memory Bank Search
                 memory_service = runner.memory_service
                 if memory_service and user_id_resolved and user_id_resolved != "anonymous_user":
                     try:
                         memories = await memory_service.search_memory(
                             app_name='host-agent',
-                            user_id=user_id_resolved,
+                            user_id=memory_user_id,
                             query=message
                         )
                         if memories:
                             memory_text = "\n".join([f"- {m.content}" for m in memories if getattr(m, 'content', None)])
                             if memory_text.strip():
                                 cloned_agent.instruction += f"\n\n[USER LONG-TERM MEMORIES & PREFERENCES]\n{memory_text}\n"
-                                print(f"🧠 Injected {len(memories)} retrieved user memories into stream turn context")
+                                print(f"🧠 Injected {len(memories)} retrieved user memories into stream turn context (scope={memory_user_id})")
                     except Exception as mem_search_err:
                         print(f"⚠️ Memory search non-critical: {mem_search_err}")
 
@@ -873,8 +876,10 @@ class AgentEngineApp(A2aAgent):
                         # Post-turn Memory Bank Ingestion
                         if memory_service:
                             try:
-                                await memory_service.add_session_to_memory(updated_session)
-                                print(f"🧠 Ingested session turn to VertexAiMemoryBankService for user {user_id_resolved}")
+                                session_copy = updated_session.model_copy()
+                                session_copy.user_id = memory_user_id
+                                await memory_service.add_session_to_memory(session_copy)
+                                print(f"🧠 Ingested session turn to VertexAiMemoryBankService (scope={memory_user_id})")
                             except Exception as mem_ingest_err:
                                 print(f"⚠️ Memory ingestion non-critical: {mem_ingest_err}")
                 except Exception as save_err:
