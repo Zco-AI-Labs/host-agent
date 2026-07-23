@@ -214,8 +214,22 @@ class HostAgent:
                     from app.app_utils.env_resolver import get_project_id
                     project_id = get_project_id()
                     location = os.getenv("GCP_LOCATION") or "us-central1"
-                    memory_service = VertexAiMemoryBankService(project=project_id, location=location)
-                    print(f"🧠 Connected GEAP VertexAiMemoryBankService (project={project_id}, location={location}) to host-agent")
+                    
+                    engine_id = None
+                    for key in ['REASONING_ENGINE_ID', 'AGENT_ENGINE_ID', 'GEAP_HOST_RESOURCE', 'RESOURCE_NAME']:
+                        val = os.getenv(key)
+                        if val:
+                            if 'reasoningEngines/' in val:
+                                engine_id = val.split('reasoningEngines/')[-1].split('/')[0]
+                                break
+                            if val.isdigit():
+                                engine_id = val
+                                break
+                    if not engine_id:
+                        engine_id = "1953980046871887872"
+                        
+                    memory_service = VertexAiMemoryBankService(project=project_id, location=location, agent_engine_id=engine_id)
+                    print(f"🧠 Connected GEAP VertexAiMemoryBankService (project={project_id}, location={location}, engine_id={engine_id}) to host-agent")
                 except Exception as mem_err:
                     print(f"ℹ️ VertexAiMemoryBankService fallback ({mem_err}). Using InMemoryMemoryService.")
                     from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
