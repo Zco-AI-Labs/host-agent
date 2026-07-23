@@ -9,6 +9,6 @@ create_params:
   deployment_target: agent_runtime
   is_a2a: true
   cicd_runner: skip
-  include_data_ingestion: false
-  datastore: none
+  include_data_ingestion: true
+  datastore: "vertex_ai_memory_bank"
   agent_guidance_filename: GEMINI.md
