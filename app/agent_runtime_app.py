@@ -742,7 +742,11 @@ class AgentEngineApp(A2aAgent):
 
         system_instruction = (context or {}).get("system_instruction")
         if system_instruction:
-            cloned_agent.instruction = system_instruction
+            base_skill_instruction = cloned_agent.instruction or ""
+            if base_skill_instruction and base_skill_instruction not in system_instruction:
+                cloned_agent.instruction = f"[IDENTITY & PERSONA]\n{system_instruction}\n\n[CORE ORCHESTRATION & MEMORY DIRECTIVES]\n{base_skill_instruction}"
+            else:
+                cloned_agent.instruction = system_instruction
 
         from google.adk.runners import Runner
         runner = Runner(
@@ -802,6 +806,23 @@ class AgentEngineApp(A2aAgent):
                 except Exception as restore_err:
                     print(f"⚠️ Non-critical: Failed to restore session trajectory: {restore_err}")
 
+                # Pre-turn Memory Bank Search
+                memory_service = runner.memory_service
+                if memory_service and user_id_resolved and user_id_resolved != "anonymous_user":
+                    try:
+                        memories = await memory_service.search_memory(
+                            app_name='host-agent',
+                            user_id=user_id_resolved,
+                            query=message
+                        )
+                        if memories:
+                            memory_text = "\n".join([f"- {m.content}" for m in memories if getattr(m, 'content', None)])
+                            if memory_text.strip():
+                                cloned_agent.instruction += f"\n\n[USER LONG-TERM MEMORIES & PREFERENCES]\n{memory_text}\n"
+                                print(f"🧠 Injected {len(memories)} retrieved user memories into stream turn context")
+                    except Exception as mem_search_err:
+                        print(f"⚠️ Memory search non-critical: {mem_search_err}")
+
                 new_message = types.Content(
                     parts=[types.Part.from_text(text=message)]
                 )
@@ -817,7 +838,7 @@ class AgentEngineApp(A2aAgent):
 
                 async for event in runner.run_async(
                     new_message=new_message,
-                    user_id=user_id,
+                    user_id=user_id_resolved,
                     session_id=session_id_resolved,
                     run_config=run_cfg,
                     **kwargs
@@ -829,7 +850,7 @@ class AgentEngineApp(A2aAgent):
                 if actions:
                     yield {"actions": actions}
 
-                # Retrieve updated session state and persist back to Firestore
+                # Retrieve updated session state, ingest to Memory Bank, and persist back to Firestore
                 try:
                     session_service = runner.session_service
                     updated_session = await session_service.get_session(
@@ -848,6 +869,14 @@ class AgentEngineApp(A2aAgent):
                             }
                         )
                         print(f"💾 Persisted ADK GEAP Session trajectory for {session_id_resolved}")
+
+                        # Post-turn Memory Bank Ingestion
+                        if memory_service:
+                            try:
+                                await memory_service.add_session_to_memory(updated_session)
+                                print(f"🧠 Ingested session turn to VertexAiMemoryBankService for user {user_id_resolved}")
+                            except Exception as mem_ingest_err:
+                                print(f"⚠️ Memory ingestion non-critical: {mem_ingest_err}")
                 except Exception as save_err:
                     print(f"⚠️ Non-critical: Failed to save session trajectory: {save_err}")
         finally:
