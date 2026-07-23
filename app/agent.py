@@ -206,15 +206,27 @@ class HostAgent:
             if not self.runner:
                 from google.adk.sessions.in_memory_session_service import InMemorySessionService
                 from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
-                from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
                 from google.adk.auth.credential_service.in_memory_credential_service import InMemoryCredentialService
                 
+                memory_service = None
+                try:
+                    from google.adk.memory.vertex_ai_memory_bank_service import VertexAiMemoryBankService
+                    from app.app_utils.env_resolver import get_project_id
+                    project_id = get_project_id()
+                    location = os.getenv("GCP_LOCATION") or "us-central1"
+                    memory_service = VertexAiMemoryBankService(project=project_id, location=location)
+                    print(f"🧠 Connected GEAP VertexAiMemoryBankService (project={project_id}, location={location}) to host-agent")
+                except Exception as mem_err:
+                    print(f"ℹ️ VertexAiMemoryBankService fallback ({mem_err}). Using InMemoryMemoryService.")
+                    from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+                    memory_service = InMemoryMemoryService()
+
                 self.runner = Runner(
                     agent=root_agent,
                     app_name='host-agent',
                     session_service=InMemorySessionService(),
                     artifact_service=InMemoryArtifactService(),
-                    memory_service=InMemoryMemoryService(),
+                    memory_service=memory_service,
                     credential_service=InMemoryCredentialService(),
                     auto_create_session=True
                 )
