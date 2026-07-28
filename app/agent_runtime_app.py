@@ -397,71 +397,43 @@ class AgentEngineA2aExecutor(A2aAgentExecutor):
         has_actions = bool(remote_ctx.actions)
         if has_actions:
             directive_payload = {}
+            all_actions = []
             for action in remote_ctx.actions:
                 atype = action.get("type")
                 payload = action.get("payload") or {}
-                if atype == "OPEN_AGENT_WIDGET":
-                    directive_payload = {
-                        "directive": "execute_host_tool",
-                        "target_tool": "openAgentWidget",
-                        "parameters": {
-                            "widgetId": payload.get("widgetId"),
-                            "widgetConfig": payload.get("widgetConfig"),
-                            "data": payload.get("data") or {},
-                            "styling": payload.get("styling") or {},
-                            "userPreferences": payload.get("userPreferences") or {}
-                        },
-                        "message": interceptor.accumulated_text or "Displaying agent widget."
-                    }
-                    break
-                elif atype == "OPEN_ADMIN_WIDGET":
-                    directive_payload = {
-                        "directive": "execute_host_tool",
-                        "target_tool": "openAdminWidget",
-                        "parameters": {
-                            "widgetType": payload.get("widgetType")
-                        },
-                        "message": interceptor.accumulated_text or "Opening admin widget."
-                    }
-                    break
-                elif atype == "SET_SUGGESTIONS":
-                    directive_payload = {
-                        "directive": "execute_host_tool",
-                        "target_tool": "suggestQueries",
-                        "parameters": {
-                            "queries": action.get("queries") or []
-                        },
-                        "message": interceptor.accumulated_text or ""
-                    }
-                    break
+                if atype == "SET_SUGGESTIONS":
+                    all_actions.append({
+                        "type": "SET_SUGGESTIONS",
+                        "queries": action.get("queries") or []
+                    })
+                elif atype == "OPEN_AGENT_WIDGET":
+                    all_actions.append({
+                        "type": "OPEN_AGENT_WIDGET",
+                        "payload": payload
+                    })
                 elif atype == "SWITCH_HUB":
-                    directive_payload = {
-                        "directive": "execute_host_tool",
-                        "target_tool": "switchHub",
-                        "parameters": {
-                            "hubId": payload.get("hubId")
-                        },
-                        "message": interceptor.accumulated_text or "Switching hub workspace."
-                    }
-                    break
+                    all_actions.append({
+                        "type": "SWITCH_CONTEXT",
+                        "targetHubId": payload.get("hubId")
+                    })
                 elif atype == "OPEN_EXTERNAL_LINK":
-                    directive_payload = {
-                        "directive": "execute_host_tool",
-                        "target_tool": "openExternalLink",
-                        "parameters": {
-                            "url": payload.get("url")
-                        },
-                        "message": interceptor.accumulated_text or "Opening link."
-                    }
-                    break
-                elif atype == "END_CALL":
-                    directive_payload = {
-                        "directive": "execute_host_tool",
-                        "target_tool": "endCall",
-                        "parameters": {},
-                        "message": interceptor.accumulated_text or "Call ended."
-                    }
-                    break
+                    all_actions.append({
+                        "type": "OPEN_EXTERNAL_LINK",
+                        "payload": payload
+                    })
+                else:
+                    all_actions.append(action)
+
+            if all_actions:
+                directive_payload = {
+                    "directive": "execute_host_tool",
+                    "actions": all_actions,
+                    "target_tool": "suggestQueries" if any(a.get("type") == "SET_SUGGESTIONS" for a in all_actions) else "openAgentWidget",
+                    "parameters": {
+                        "queries": next((a.get("queries") for a in all_actions if a.get("type") == "SET_SUGGESTIONS"), [])
+                    },
+                    "message": interceptor.accumulated_text or ""
+                }
 
             if directive_payload:
                 from a2a.types import TaskStatusUpdateEvent, Message, Role, TextPart, TaskStatus, TaskState, TaskArtifactUpdateEvent, Artifact
