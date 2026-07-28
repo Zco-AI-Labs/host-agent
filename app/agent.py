@@ -149,7 +149,8 @@ class HostAgent:
         )
         
         # Resolve session ID
-        session_id = (context or {}).get("sessionId") or f"session_{user_id}_{hub_id}"
+        import uuid as uuid_mod
+        session_id = (context or {}).get("sessionId") or f"sess_{uuid_mod.uuid4().hex[:12]}"
 
         # --- OPENTELEMETRY CONTEXT ENRICHMENT (OPTION A) ---
         try:
