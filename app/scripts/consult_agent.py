@@ -186,13 +186,15 @@ async def consultAgent(agentId: str, query: str) -> str:
                 
                 if directive == "execute_host_tool":
                     if target_tool == "openAdminWidget":
+                        wtype = parameters.get("widgetType") or parameters.get("widget_type") or parameters.get("id")
                         ctx.actions.append({
                             "type": "OPEN_ADMIN_WIDGET",
                             "payload": {
-                                "widgetType": parameters.get("widgetType")
+                                "id": wtype,
+                                "widgetType": wtype
                             }
                         })
-                        return message or f"Opening the {parameters.get('widgetType')} widget."
+                        return message or f"Opening the {wtype} widget."
                         
                     elif target_tool == "openAgentWidget":
                         ctx.actions.append({
