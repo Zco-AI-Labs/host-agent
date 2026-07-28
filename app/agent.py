@@ -308,6 +308,7 @@ class HostAgent:
             )
             
             collected_outputs = []
+            last_partial_output = ""
             async for event in self.runner.run_async(
                 user_id=user_id,
                 session_id=session_id,
@@ -320,8 +321,22 @@ class HostAgent:
                         out = "\n".join(text_parts)
                 if out and isinstance(out, str) and out.strip():
                     clean_out = out.strip()
-                    if not collected_outputs or clean_out != collected_outputs[-1].strip():
-                        collected_outputs.append(clean_out)
+                    if getattr(event, "partial", False):
+                        last_partial_output = clean_out
+                    else:
+                        if collected_outputs:
+                            last = collected_outputs[-1]
+                            if clean_out.startswith(last) or last in clean_out:
+                                collected_outputs[-1] = clean_out
+                            elif clean_out in last or last.startswith(clean_out):
+                                pass
+                            elif clean_out != last:
+                                collected_outputs.append(clean_out)
+                        else:
+                            collected_outputs.append(clean_out)
+            
+            if not collected_outputs and last_partial_output:
+                collected_outputs.append(last_partial_output)
             
             text_response = "\n".join(collected_outputs)
             
