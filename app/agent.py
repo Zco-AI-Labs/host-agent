@@ -198,11 +198,12 @@ class HostAgent:
         # 1. Resolve dynamic system instructions from context and merge with base skill instructions
         dynamic_ctx_prompt = (context or {}).get("system_instruction") or ""
         if dynamic_ctx_prompt:
-            root_agent.instruction = f"[IDENTITY & PERSONA]\n{dynamic_ctx_prompt}\n\n[CORE ORCHESTRATION & MEMORY DIRECTIVES]\n{base_skill_instruction}"
+            base_instruction = f"[IDENTITY & PERSONA]\n{dynamic_ctx_prompt}\n\n[CORE ORCHESTRATION & MEMORY DIRECTIVES]\n{base_skill_instruction}"
         else:
-            root_agent.instruction = base_skill_instruction
+            base_instruction = base_skill_instruction
 
-        
+        root_agent.instruction = base_instruction
+
         with hubscape_adk.context_session(remote_ctx):
             if not self.runner:
                 from google.adk.sessions.in_memory_session_service import InMemorySessionService
@@ -297,7 +298,7 @@ class HostAgent:
 
                     if memory_lines:
                         memory_text = "\n".join(memory_lines)
-                        root_agent.instruction += f"\n\n[USER LONG-TERM MEMORIES & PREFERENCES]\n{memory_text}\n"
+                        root_agent.instruction = f"{base_instruction}\n\n[USER LONG-TERM MEMORIES & PREFERENCES]\n{memory_text}\n"
                         print(f"🧠 Injected {len(memory_lines)} retrieved user memories into turn context (scope={memory_user_id})")
                 except Exception as mem_search_err:
                     print(f"⚠️ Memory search non-critical: {mem_search_err}")
