@@ -162,6 +162,7 @@ async def consultAgent(agentId: str, query: str) -> str:
                 a2a_request_meta_provider=request_meta_provider
             )
             collected_chunks = []
+            last_partial_out = ""
             async for ev in subagent.run_async(parent_context=parent_ctx):
                 out = getattr(ev, "output", None)
                 if not out and getattr(ev, "content", None) and getattr(ev.content, "parts", None):
@@ -170,8 +171,14 @@ async def consultAgent(agentId: str, query: str) -> str:
                         out = "\n".join(text_parts)
                 if out and isinstance(out, str) and out.strip():
                     clean_out = out.strip()
-                    if not collected_chunks or clean_out != collected_chunks[-1].strip():
-                        collected_chunks.append(clean_out)
+                    if getattr(ev, "partial", False):
+                        last_partial_out = clean_out
+                    else:
+                        if not collected_chunks or clean_out != collected_chunks[-1].strip():
+                            collected_chunks.append(clean_out)
+            
+            if not collected_chunks and last_partial_out:
+                collected_chunks.append(last_partial_out)
             
             subagent_output = "\n".join(collected_chunks)
             
