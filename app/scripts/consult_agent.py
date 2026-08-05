@@ -101,7 +101,7 @@ async def consultAgent(agentId: str, query: str) -> str:
             session_id = f"session_{ctx.auth.get_user_id() or 'guest'}_{ctx.auth.hub_id or 'platform'}"
 
 
-        # Request metadata provider to securely propagate RBAC context, session ID, and increment call depth
+        # Request metadata provider to securely propagate RBAC context, session ID, temporal sensors, and increment call depth
         def request_meta_provider(invocation_context, a2a_message):
             return {
                 "userId": ctx.auth.get_user_id(),
@@ -119,7 +119,11 @@ async def consultAgent(agentId: str, query: str) -> str:
                 "depth": current_depth + 1,
                 "backend_url": raw_ctx.get("backend_url"),
                 "capability_token": raw_ctx.get("capability_token"),
-                "storageBucket": raw_ctx.get("storageBucket")
+                "storageBucket": raw_ctx.get("storageBucket"),
+                "user_timezone": raw_ctx.get("user_timezone"),
+                "current_local_datetime": raw_ctx.get("current_local_datetime"),
+                "day_of_week": raw_ctx.get("day_of_week"),
+                "current_iso_timestamp": raw_ctx.get("current_iso_timestamp")
             }
 
         if not agentId or not str(agentId).strip():
