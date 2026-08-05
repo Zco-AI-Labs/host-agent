@@ -101,14 +101,8 @@ async def consultAgent(agentId: str, query: str) -> str:
             session_id = f"session_{ctx.auth.get_user_id() or 'guest'}_{ctx.auth.hub_id or 'platform'}"
 
 
-        # Request metadata provider to securely propagate RBAC context, session ID, temporal sensors, closed-domain directive, and increment call depth
+        # Request metadata provider to securely propagate RBAC context, session ID, temporal sensors, and increment call depth
         def request_meta_provider(invocation_context, a2a_message):
-            closed_domain_instruction = (
-                "STRICT CLOSED-DOMAIN GROUNDING: Answer user queries EXCLUSIVELY using data "
-                "returned by tool calls or database lookups in this session. NEVER use pre-trained "
-                "internal memory or general web/Wikipedia facts about famous entities. If no data is found by tools, "
-                "state that information is unavailable in the knowledge base."
-            )
             return {
                 "userId": ctx.auth.get_user_id(),
                 "user_id": ctx.auth.get_user_id(),
@@ -129,8 +123,7 @@ async def consultAgent(agentId: str, query: str) -> str:
                 "user_timezone": raw_ctx.get("user_timezone"),
                 "current_local_datetime": raw_ctx.get("current_local_datetime"),
                 "day_of_week": raw_ctx.get("day_of_week"),
-                "current_iso_timestamp": raw_ctx.get("current_iso_timestamp"),
-                "system_instruction": closed_domain_instruction
+                "current_iso_timestamp": raw_ctx.get("current_iso_timestamp")
             }
 
         if not agentId or not str(agentId).strip():
