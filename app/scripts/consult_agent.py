@@ -296,3 +296,46 @@ async def consultAgent(agentId: str, query: str) -> str:
     except Exception as e:
         logger.error(f"Error consulting subagent {agentId}: {e}", exc_info=True)
         return f"Error: Failed to consult subagent '{agentId}': {str(e)}"
+
+
+@hubscape_adk.require_tool_privilege
+async def consultAgentsParallel(calls: list[dict]) -> str:
+    """
+    Consults multiple specialized subagents concurrently in parallel (max 3 subagents).
+    
+    Args:
+        calls: A list of dicts specifying subagents to consult.
+               Example: [{"agentId": "admin_ui_agent", "query": "open edit prompt widget"}, {"agentId": "knowledge_agent", "query": "prompt guidelines"}]
+    """
+    try:
+        import asyncio
+        if not calls or not isinstance(calls, list):
+            return json.dumps({"error": "calls parameter must be a non-empty list of tool call dictionaries."})
+
+        # Programmatically enforce hard safety cap of Top-3 subagents max
+        capped_calls = calls[:3]
+
+        async def run_single_call(c: dict) -> tuple[str, str]:
+            aid = c.get("agentId") or c.get("agent_id") or ""
+            q = c.get("query") or ""
+            if not aid:
+                return "unknown", "Error: Missing agentId in parallel call payload."
+            res = await consultAgent(agentId=aid, query=q)
+            return aid, res
+
+        tasks = [run_single_call(c) for c in capped_calls]
+        results_list = await asyncio.gather(*tasks, return_exceptions=True)
+
+        combined_results = {}
+        for item in results_list:
+            if isinstance(item, Exception):
+                logger.error(f"Error in consultAgentsParallel item: {item}")
+                continue
+            aid, output = item
+            combined_results[aid] = output
+
+        return json.dumps(combined_results, indent=2)
+
+    except Exception as e:
+        logger.error(f"Error in consultAgentsParallel: {e}", exc_info=True)
+        return json.dumps({"error": f"Failed to execute parallel subagent consultation: {str(e)}"})
