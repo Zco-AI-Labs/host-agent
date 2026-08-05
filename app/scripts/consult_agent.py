@@ -12,6 +12,23 @@ from google.adk.agents.invocation_context import InvocationContext
 
 logger = logging.getLogger(__name__)
 
+def extract_dynamic_entity(persona_text: str, hub_name: str) -> str:
+    """Extracts the primary business/venue entity dynamically from any hub persona or name (0% hardcoded)."""
+    generic_names = {"platform", "hubscape", "events hub", "main hub", "portal", "support", "workspace"}
+    if hub_name and isinstance(hub_name, str) and hub_name.lower().strip() not in generic_names:
+        return hub_name.strip()
+
+    if persona_text and isinstance(persona_text, str):
+        import re
+        stopwords = {"you", "are", "the", "ai", "assistant", "official", "concierge", "manager", "host", "for", "in", "here", "to", "help", "welcome", "your", "goal", "is", "provide", "warm", "enthusiastic", "guests", "attending"}
+        words = re.findall(r"[A-Z][a-zA-Z0-9']*", persona_text[:250])
+        entity_words = [w for w in words if w.lower() not in stopwords]
+        if entity_words:
+            return " ".join(entity_words[:3])
+
+    return ""
+
+
 @hubscape_adk.require_tool_privilege
 async def consultAgent(agentId: str, query: str) -> str:
     """
@@ -24,6 +41,22 @@ async def consultAgent(agentId: str, query: str) -> str:
     try:
         ctx = hubscape_adk.get_context()
         raw_ctx = ctx.raw_context
+        
+        # Universal Dynamic Query Enrichment for Knowledge Search (0% Hardcoded)
+        if agentId == "knowledge_agent":
+            persona = (
+                raw_ctx.get("custom_persona") or
+                raw_ctx.get("persona") or
+                raw_ctx.get("identityPrompt") or
+                raw_ctx.get("system_instruction") or ""
+            )
+            hub_name = raw_ctx.get("hubName") or raw_ctx.get("hub_name") or ""
+            entity_name = extract_dynamic_entity(persona, hub_name)
+
+            if entity_name and entity_name.lower() not in query.lower():
+                enriched_query = f"{entity_name} {query}"
+                logger.info(f"💡 Dynamic Entity Enrichment: '{query}' -> '{enriched_query}' (Extracted: '{entity_name}')")
+                query = enriched_query
         
         # Prevent infinite agent-to-agent delegation loops (max depth = 3)
         current_depth = raw_ctx.get("depth", 0)
