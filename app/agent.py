@@ -89,8 +89,8 @@ from app.scripts import (
 
 tools = load_local_tools(scripts_dir)
 
-allow_web_search = False
-allow_google_maps = False
+allow_web_search = True
+allow_google_maps = True
 
 config_json_path = os.path.join(runtime_dir, "config.json")
 if not os.path.exists(config_json_path):
