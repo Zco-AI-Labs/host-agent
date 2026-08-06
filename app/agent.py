@@ -106,10 +106,11 @@ if os.path.exists(config_json_path):
         import logging
         logging.getLogger(__name__).warning(f"Failed to read/parse config.json: {e}")
 
+grounding_tools = []
 if allow_web_search:
     try:
         from google.adk.tools import google_search
-        tools.append(google_search)
+        grounding_tools.append(google_search)
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(f"Failed to import google_search tool: {e}")
@@ -117,7 +118,7 @@ if allow_web_search:
 if allow_google_maps:
     try:
         from google.adk.tools import google_maps_grounding
-        tools.append(google_maps_grounding)
+        grounding_tools.append(google_maps_grounding)
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(f"Failed to import google_maps_grounding tool: {e}")
@@ -132,11 +133,22 @@ root_agent = AdkAgent(
     tools=tools
 )
 
+grounding_agent = None
+if grounding_tools:
+    grounding_agent = AdkAgent(
+        model=get_model("gemini-2.5-flash"),
+        name=f"{agent_name}_grounding",
+        description="Grounding agent for web search and maps",
+        instruction=base_skill_instruction,
+        tools=grounding_tools
+    )
+
 
 
 class HostAgent:
     def __init__(self):
         self.runner = None
+        self.grounding_runner = None
 
     async def query(self, question: str, context: dict = None) -> str:
         start_time = time.time()
@@ -262,50 +274,68 @@ class HostAgent:
             spatial_context = "\n[SPATIAL & LOCATION CONTEXT]\n" + "\n".join(spatial_lines) + "\n"
             base_instruction = f"{spatial_context}\n{base_instruction}"
 
-        root_agent.instruction = base_instruction
+        # Determine if query should route to grounding_agent (to prevent Vertex AI tool mixing collision)
+        use_grounding = grounding_agent is not None and (
+            bool(spatial_lines) or any(kw in parsed_question.lower() for kw in ("distance", "far", "direction", "map", "drive", "navigate", "search", "where", "route", "how long"))
+        )
+
+        active_agent = grounding_agent if use_grounding else root_agent
+        active_agent.instruction = base_instruction
 
         with hubscape_adk.context_session(remote_ctx):
-            if not self.runner:
-                from google.adk.sessions.in_memory_session_service import InMemorySessionService
-                from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
-                from google.adk.auth.credential_service.in_memory_credential_service import InMemoryCredentialService
+            from google.adk.sessions.in_memory_session_service import InMemorySessionService
+            from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
+            from google.adk.auth.credential_service.in_memory_credential_service import InMemoryCredentialService
+            
+            memory_service = None
+            try:
+                from google.adk.memory.vertex_ai_memory_bank_service import VertexAiMemoryBankService
+                from app.app_utils.env_resolver import get_project_id
+                project_id = get_project_id()
+                location = os.getenv("GCP_LOCATION") or "us-central1"
                 
-                memory_service = None
-                try:
-                    from google.adk.memory.vertex_ai_memory_bank_service import VertexAiMemoryBankService
-                    from app.app_utils.env_resolver import get_project_id
-                    project_id = get_project_id()
-                    location = os.getenv("GCP_LOCATION") or "us-central1"
+                engine_id = None
+                for key in ['REASONING_ENGINE_ID', 'AGENT_ENGINE_ID', 'GEAP_HOST_RESOURCE', 'RESOURCE_NAME']:
+                    val = os.getenv(key)
+                    if val:
+                        if 'reasoningEngines/' in val:
+                            engine_id = val.split('reasoningEngines/')[-1].split('/')[0]
+                            break
+                        if val.isdigit():
+                            engine_id = val
+                            break
+                if not engine_id:
+                    engine_id = "1953980046871887872"
                     
-                    engine_id = None
-                    for key in ['REASONING_ENGINE_ID', 'AGENT_ENGINE_ID', 'GEAP_HOST_RESOURCE', 'RESOURCE_NAME']:
-                        val = os.getenv(key)
-                        if val:
-                            if 'reasoningEngines/' in val:
-                                engine_id = val.split('reasoningEngines/')[-1].split('/')[0]
-                                break
-                            if val.isdigit():
-                                engine_id = val
-                                break
-                    if not engine_id:
-                        engine_id = "1953980046871887872"
-                        
-                    memory_service = VertexAiMemoryBankService(project=project_id, location=location, agent_engine_id=engine_id)
-                    print(f"🧠 Connected GEAP VertexAiMemoryBankService (project={project_id}, location={location}, engine_id={engine_id}) to host-agent")
-                except Exception as mem_err:
-                    print(f"ℹ️ VertexAiMemoryBankService fallback ({mem_err}). Using InMemoryMemoryService.")
-                    from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
-                    memory_service = InMemoryMemoryService()
+                memory_service = VertexAiMemoryBankService(project=project_id, location=location, agent_engine_id=engine_id)
+            except Exception as mem_err:
+                from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+                memory_service = InMemoryMemoryService()
 
-                self.runner = Runner(
-                    agent=root_agent,
-                    app_name='host-agent',
-                    session_service=InMemorySessionService(),
-                    artifact_service=InMemoryArtifactService(),
-                    memory_service=memory_service,
-                    credential_service=InMemoryCredentialService(),
-                    auto_create_session=True
-                )
+            if use_grounding:
+                if not self.grounding_runner:
+                    self.grounding_runner = Runner(
+                        agent=grounding_agent,
+                        app_name='host-agent-grounding',
+                        session_service=InMemorySessionService(),
+                        artifact_service=InMemoryArtifactService(),
+                        memory_service=memory_service,
+                        credential_service=InMemoryCredentialService(),
+                        auto_create_session=True
+                    )
+                active_runner = self.grounding_runner
+            else:
+                if not self.runner:
+                    self.runner = Runner(
+                        agent=root_agent,
+                        app_name='host-agent',
+                        session_service=InMemorySessionService(),
+                        artifact_service=InMemoryArtifactService(),
+                        memory_service=memory_service,
+                        credential_service=InMemoryCredentialService(),
+                        auto_create_session=True
+                    )
+                active_runner = self.runner
             
             # 2. Try to restore session trajectory from Firestore using ADK serialization
             try:
@@ -374,7 +404,7 @@ class HostAgent:
             
             collected_outputs = []
             last_partial_output = ""
-            async for event in self.runner.run_async(
+            async for event in active_runner.run_async(
                 user_id=user_id,
                 session_id=session_id,
                 new_message=new_message
@@ -407,7 +437,7 @@ class HostAgent:
             
             # 3. Retrieve updated session state, ingest to Memory Bank, and persist back to Firestore
             try:
-                session_service = self.runner.session_service
+                session_service = active_runner.session_service
                 updated_session = await session_service.get_session(
                     app_name='host-agent',
                     user_id=user_id,
