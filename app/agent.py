@@ -145,7 +145,7 @@ if grounding_tools:
         tools=grounding_tools
     )
 
-print(f"🌐 DEBUG_BOOT: allow_web_search={allow_web_search}, allow_google_maps={allow_google_maps}, grounding_tools_count={len(grounding_tools)}, grounding_agent_is_none={grounding_agent is None}")
+
 
 
 
@@ -294,7 +294,8 @@ class HostAgent:
         )
 
         active_agent = grounding_agent if use_grounding else root_agent
-        print(f"📡 DEBUG_QUERY: parsed_question='{parsed_question[:60]}', spatial_lines_count={len(spatial_lines)}, use_grounding={use_grounding}, active_agent_name='{active_agent.name}'")
+        import logging
+        logging.getLogger(__name__).info(f"📡 DEBUG_QUERY: parsed_question='{parsed_question[:60]}', spatial_lines_count={len(spatial_lines)}, use_grounding={use_grounding}, active_agent_name='{active_agent.name}'")
         if use_grounding:
             grounding_override = (
                 "\n\n[LIVE GROUNDING & NAVIGATION DIRECTIVE]\n"
