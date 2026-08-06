@@ -334,29 +334,25 @@ class HostAgent:
                 memory_service = InMemoryMemoryService()
 
             if use_grounding:
-                if not self.grounding_runner:
-                    self.grounding_runner = Runner(
-                        agent=grounding_agent,
-                        app_name='host-agent-grounding',
-                        session_service=InMemorySessionService(),
-                        artifact_service=InMemoryArtifactService(),
-                        memory_service=memory_service,
-                        credential_service=InMemoryCredentialService(),
-                        auto_create_session=True
-                    )
-                active_runner = self.grounding_runner
+                active_runner = Runner(
+                    agent=grounding_agent,
+                    app_name='host-agent-grounding',
+                    session_service=InMemorySessionService(),
+                    artifact_service=InMemoryArtifactService(),
+                    memory_service=memory_service,
+                    credential_service=InMemoryCredentialService(),
+                    auto_create_session=True
+                )
             else:
-                if not self.runner:
-                    self.runner = Runner(
-                        agent=root_agent,
-                        app_name='host-agent',
-                        session_service=InMemorySessionService(),
-                        artifact_service=InMemoryArtifactService(),
-                        memory_service=memory_service,
-                        credential_service=InMemoryCredentialService(),
-                        auto_create_session=True
-                    )
-                active_runner = self.runner
+                active_runner = Runner(
+                    agent=root_agent,
+                    app_name='host-agent',
+                    session_service=InMemorySessionService(),
+                    artifact_service=InMemoryArtifactService(),
+                    memory_service=memory_service,
+                    credential_service=InMemoryCredentialService(),
+                    auto_create_session=True
+                )
             
             # 2. Try to restore session trajectory from Firestore using ADK serialization
             try:
