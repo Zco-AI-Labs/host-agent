@@ -363,8 +363,13 @@ class HostAgent:
                 except Exception as mem_search_err:
                     print(f"⚠️ Memory search non-critical: {mem_search_err}")
 
+            turn_prompt = parsed_question
+            if spatial_lines:
+                spatial_block = "\n".join(spatial_lines)
+                turn_prompt = f"[{spatial_block}]\n\n{parsed_question}"
+
             new_message = types.Content(
-                parts=[types.Part.from_text(text=parsed_question)]
+                parts=[types.Part.from_text(text=turn_prompt)]
             )
             
             collected_outputs = []
