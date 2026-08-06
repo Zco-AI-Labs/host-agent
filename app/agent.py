@@ -89,6 +89,39 @@ from app.scripts import (
 
 tools = load_local_tools(scripts_dir)
 
+allow_web_search = False
+allow_google_maps = False
+
+config_json_path = os.path.join(os.path.dirname(runtime_dir), "config.json")
+if os.path.exists(config_json_path):
+    try:
+        import json
+        with open(config_json_path, "r", encoding="utf-8") as cf:
+            config_data = json.load(cf)
+            if "allow_web_search" in config_data or "allowWebSearch" in config_data:
+                allow_web_search = bool(config_data.get("allow_web_search") if "allow_web_search" in config_data else config_data.get("allowWebSearch"))
+            if "allow_google_maps" in config_data or "allowGoogleMaps" in config_data:
+                allow_google_maps = bool(config_data.get("allow_google_maps") if "allow_google_maps" in config_data else config_data.get("allowGoogleMaps"))
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to read/parse config.json: {e}")
+
+if allow_web_search:
+    try:
+        from google.adk.tools import google_search
+        tools.append(google_search)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to import google_search tool: {e}")
+
+if allow_google_maps:
+    try:
+        from google.adk.tools import google_maps_grounding
+        tools.append(google_maps_grounding)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to import google_maps_grounding tool: {e}")
+
 from app.app_utils.vertex_gemini import get_model
 
 root_agent = AdkAgent(
@@ -201,6 +234,33 @@ class HostAgent:
             base_instruction = f"[IDENTITY & PERSONA]\n{dynamic_ctx_prompt}\n\n[CORE ORCHESTRATION & MEMORY DIRECTIVES]\n{base_skill_instruction}"
         else:
             base_instruction = base_skill_instruction
+
+        spatial_lines = []
+        user_loc = (context or {}).get("user_location") or (context or {}).get("userLocation")
+        if user_loc:
+            if isinstance(user_loc, dict):
+                lat = user_loc.get("latitude") or user_loc.get("lat")
+                lng = user_loc.get("longitude") or user_loc.get("lng")
+                lbl = user_loc.get("label") or user_loc.get("address") or user_loc.get("city") or ""
+                loc_str = f"{lbl} (Lat: {lat}, Lng: {lng})" if lat and lng else str(lbl or user_loc)
+                spatial_lines.append(f"📍 User Live Location: {loc_str}")
+            elif isinstance(user_loc, str):
+                spatial_lines.append(f"📍 User Live Location: {user_loc}")
+        
+        hub_loc = (context or {}).get("hub_location") or (context or {}).get("hubLocation")
+        if hub_loc:
+            if isinstance(hub_loc, dict):
+                lat = hub_loc.get("latitude") or hub_loc.get("lat")
+                lng = hub_loc.get("longitude") or hub_loc.get("lng")
+                lbl = hub_loc.get("label") or hub_loc.get("address") or hub_loc.get("name") or ""
+                loc_str = f"{lbl} (Lat: {lat}, Lng: {lng})" if lat and lng else str(lbl or hub_loc)
+                spatial_lines.append(f"🏢 Active Hub Location: {loc_str}")
+            elif isinstance(hub_loc, str):
+                spatial_lines.append(f"🏢 Active Hub Location: {hub_loc}")
+
+        if spatial_lines:
+            spatial_context = "\n[SPATIAL & LOCATION CONTEXT]\n" + "\n".join(spatial_lines) + "\n"
+            base_instruction = f"{spatial_context}\n{base_instruction}"
 
         root_agent.instruction = base_instruction
 
