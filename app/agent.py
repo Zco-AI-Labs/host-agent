@@ -413,9 +413,18 @@ class HostAgent:
                     print(f"⚠️ Memory search non-critical: {mem_search_err}")
 
             turn_prompt = parsed_question
+            turn_prefix = ""
             if spatial_lines:
-                spatial_block = "\n".join(spatial_lines)
-                turn_prompt = f"[{spatial_block}]\n\n{parsed_question}"
+                turn_prefix += "\n[SPATIAL & LOCATION CONTEXT]\n" + "\n".join(spatial_lines) + "\n"
+            if use_grounding:
+                turn_prefix += (
+                    "[LIVE GROUNDING & NAVIGATION DIRECTIVE]\n"
+                    "You are explicitly authorized to use your Google Maps tool to provide real-time directions, "
+                    "driving/transit distances, travel times, and local routing relative to the user's live location "
+                    "and workspace location. Do not refuse distance or mapping queries.\n\n"
+                )
+            if turn_prefix:
+                turn_prompt = f"{turn_prefix}{parsed_question}"
 
             new_message = types.Content(
                 parts=[types.Part.from_text(text=turn_prompt)]
