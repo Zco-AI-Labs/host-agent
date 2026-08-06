@@ -13,4 +13,4 @@ def test_host_agent_grounding_toggles():
     tool_names = [getattr(t, "name", str(t)) for t in grounding_agent.tools]
     
     assert "google_maps" in tool_names
-    assert "google_search" not in tool_names
+    assert "google_search" in tool_names
