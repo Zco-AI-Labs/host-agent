@@ -290,7 +290,16 @@ class HostAgent:
         )
 
         active_agent = grounding_agent if use_grounding else root_agent
-        active_agent.instruction = base_instruction
+        if use_grounding:
+            grounding_override = (
+                "\n\n[LIVE GROUNDING & NAVIGATION DIRECTIVE]\n"
+                "You are explicitly authorized to use your Google Maps tool to provide real-time directions, "
+                "driving/transit distances, travel times, and local routing relative to the user's live location "
+                "and workspace location. Do not refuse distance or mapping queries."
+            )
+            active_agent.instruction = f"{base_instruction}{grounding_override}"
+        else:
+            active_agent.instruction = base_instruction
 
         with hubscape_adk.context_session(remote_ctx):
             from google.adk.sessions.in_memory_session_service import InMemorySessionService
