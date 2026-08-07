@@ -334,26 +334,15 @@ class HostAgent:
                 from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
                 memory_service = InMemoryMemoryService()
 
-            if use_grounding:
-                active_runner = Runner(
-                    agent=grounding_agent,
-                    app_name='host-agent-grounding',
-                    session_service=InMemorySessionService(),
-                    artifact_service=InMemoryArtifactService(),
-                    memory_service=memory_service,
-                    credential_service=InMemoryCredentialService(),
-                    auto_create_session=True
-                )
-            else:
-                active_runner = Runner(
-                    agent=active_agent,
-                    app_name='host-agent',
-                    session_service=InMemorySessionService(),
-                    artifact_service=InMemoryArtifactService(),
-                    memory_service=memory_service,
-                    credential_service=InMemoryCredentialService(),
-                    auto_create_session=True
-                )
+            active_runner = Runner(
+                agent=active_agent,
+                app_name='host-agent-grounding' if use_grounding else 'host-agent',
+                session_service=InMemorySessionService(),
+                artifact_service=InMemoryArtifactService(),
+                memory_service=memory_service,
+                credential_service=InMemoryCredentialService(),
+                auto_create_session=True
+            )
             
             # 2. Try to restore session trajectory from Firestore using ADK serialization
             try:
