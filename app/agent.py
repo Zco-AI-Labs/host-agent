@@ -288,10 +288,9 @@ class HostAgent:
             spatial_context = "\n[SPATIAL & LOCATION CONTEXT]\n" + "\n".join(spatial_lines) + "\n"
             base_instruction = f"{spatial_context}\n{base_instruction}"
 
-        # Determine if query should route to grounding_agent (to prevent Vertex AI tool mixing collision)
-        use_grounding = grounding_agent is not None and (
-            bool(spatial_lines) or any(kw in parsed_question.lower() for kw in ("distance", "far", "direction", "map", "drive", "navigate", "search", "where", "route", "how long"))
-        )
+        # Route to grounding_agent by default for all general/spatial/search queries, unless explicitly requesting subagent delegation tools
+        is_subagent_query = any(kw in parsed_question.lower() for kw in ("subagent", "consult_agent", "discover_agents", "run_agent", "inspect_env"))
+        use_grounding = grounding_agent is not None and not is_subagent_query
 
         active_agent = grounding_agent if use_grounding else root_agent
         import logging
