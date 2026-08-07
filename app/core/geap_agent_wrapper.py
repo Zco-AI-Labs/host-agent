@@ -192,10 +192,10 @@ class GEAPAgentWrapper:
                 use_grounding = False
 
             if use_grounding:
-                cloned_agent.tools = grounding_tools
-                cloned_agent.instruction = f"{session_context}\n{base_instruction}"
-            elif custom_tools:
+                cloned_agent.tools = custom_tools + grounding_tools
+            else:
                 cloned_agent.tools = custom_tools
+            cloned_agent.instruction = f"{session_context}\n{base_instruction}"
             
             # Create a fresh runner for this request to guarantee thread safety
             runner = Runner(
