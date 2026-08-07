@@ -164,9 +164,32 @@ class GEAPAgentWrapper:
                 else:
                     custom_tools.append(t)
 
-            use_grounding = len(grounding_tools) > 0 and (
-                bool(spatial_lines) or any(kw in question.lower() for kw in ("distance", "far", "direction", "map", "drive", "navigate", "search", "where", "route", "how long"))
-            )
+            grounding_keywords = []
+            core_dir = os.path.dirname(os.path.abspath(__file__))
+            app_dir = os.path.dirname(core_dir)
+            root_dir = os.path.dirname(app_dir)
+
+            config_json_path = os.path.join(app_dir, "config.json")
+            if not os.path.exists(config_json_path):
+                config_json_path = os.path.join(root_dir, "config.json")
+
+            if os.path.exists(config_json_path):
+                try:
+                    import json
+                    with open(config_json_path, "r", encoding="utf-8") as cf:
+                        cfg_data = json.load(cf)
+                        if isinstance(cfg_data.get("grounding_keywords"), list):
+                            grounding_keywords = cfg_data.get("grounding_keywords")
+                except Exception:
+                    pass
+
+            if len(grounding_tools) > 0:
+                if grounding_keywords:
+                    use_grounding = bool(spatial_lines) or any(str(kw).lower() in question.lower() for kw in grounding_keywords)
+                else:
+                    use_grounding = bool(spatial_lines) or any(kw in question.lower() for kw in ("distance", "far", "direction", "map", "drive", "navigate", "search", "where", "route", "how long"))
+            else:
+                use_grounding = False
 
             if use_grounding:
                 cloned_agent.tools = grounding_tools
