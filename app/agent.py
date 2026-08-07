@@ -271,7 +271,7 @@ class HostAgent:
                 grounding_tools.append(google_search)
             except Exception as e:
                 import logging
-                logging.getLogger(__name__).warning(f"Failed to load google_search: {e}")
+                logging.getLogger(__name__).error(f"Failed to load google_search: {e}", exc_info=True)
 
         if allow_google_maps:
             try:
@@ -279,7 +279,7 @@ class HostAgent:
                 grounding_tools.append(google_maps_grounding)
             except Exception as e:
                 import logging
-                logging.getLogger(__name__).warning(f"Failed to load google_maps_grounding: {e}")
+                logging.getLogger(__name__).error(f"Failed to load google_maps_grounding: {e}", exc_info=True)
 
         use_grounding = bool(grounding_tools) and not is_subagent_query
 
