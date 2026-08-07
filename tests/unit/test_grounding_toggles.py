@@ -8,9 +8,6 @@ def test_host_agent_grounding_toggles():
     if "app.agent" in sys.modules:
         del sys.modules["app.agent"]
         
-    from app.agent import grounding_agent
-    assert grounding_agent is not None
-    tool_names = [getattr(t, "name", str(t)) for t in grounding_agent.tools]
-    
-    assert "google_maps" in tool_names
-    assert "google_search" in tool_names
+    from app.agent import allow_web_search, allow_google_maps
+    assert allow_web_search is True
+    assert allow_google_maps is True

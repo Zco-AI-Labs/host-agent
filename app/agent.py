@@ -108,23 +108,6 @@ if os.path.exists(config_json_path):
         import logging
         logging.getLogger(__name__).warning(f"Failed to read/parse config.json: {e}")
 
-grounding_tools = []
-if allow_web_search:
-    try:
-        from google.adk.tools import google_search
-        grounding_tools.append(google_search)
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"Failed to import google_search tool: {e}")
-
-if allow_google_maps:
-    try:
-        from google.adk.tools import google_maps_grounding
-        grounding_tools.append(google_maps_grounding)
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"Failed to import google_maps_grounding tool: {e}")
-
 from app.app_utils.vertex_gemini import get_model
 
 root_agent = AdkAgent(
@@ -134,16 +117,6 @@ root_agent = AdkAgent(
     instruction=base_skill_instruction,
     tools=tools
 )
-
-grounding_agent = None
-if grounding_tools:
-    grounding_agent = AdkAgent(
-        model=get_model("gemini-2.5-flash"),
-        name=f"{agent_name}_grounding",
-        description="Grounding agent for web search and maps",
-        instruction=base_skill_instruction,
-        tools=grounding_tools
-    )
 
 
 
@@ -290,21 +263,38 @@ class HostAgent:
 
         # Route to grounding_agent by default for all general/spatial/search queries, unless explicitly requesting subagent delegation tools
         is_subagent_query = any(kw in parsed_question.lower() for kw in ("subagent", "consult_agent", "discover_agents", "run_agent", "inspect_env"))
-        use_grounding = grounding_agent is not None and not is_subagent_query
+        
+        grounding_tools = []
+        if allow_web_search:
+            try:
+                from google.adk.tools import google_search
+                grounding_tools.append(google_search)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to load google_search: {e}")
 
-        active_agent = grounding_agent if use_grounding else root_agent
-        import logging
-        logging.getLogger(__name__).info(f"📡 DEBUG_QUERY: parsed_question='{parsed_question[:60]}', spatial_lines_count={len(spatial_lines)}, use_grounding={use_grounding}, active_agent_name='{active_agent.name}'")
+        use_grounding = bool(grounding_tools) and not is_subagent_query
+
         if use_grounding:
             grounding_override = (
                 "\n\n[LIVE GROUNDING & NAVIGATION DIRECTIVE]\n"
-                "You are explicitly authorized to use your Google Maps tool to provide real-time directions, "
+                "You are explicitly authorized to use your Google Search tool to provide real-time directions, "
                 "driving/transit distances, travel times, and local routing relative to the user's live location "
                 "and workspace location. Do not refuse distance or mapping queries."
             )
-            active_agent.instruction = f"{base_instruction}{grounding_override}"
+            active_agent = AdkAgent(
+                model=get_model("gemini-2.5-flash"),
+                name=f"{agent_name}_grounding",
+                description="Grounding agent for web search and maps",
+                instruction=f"{base_instruction}{grounding_override}",
+                tools=grounding_tools
+            )
         else:
+            active_agent = root_agent
             active_agent.instruction = base_instruction
+
+        import logging
+        logging.getLogger(__name__).info(f"📡 DEBUG_QUERY: parsed_question='{parsed_question[:60]}', spatial_lines_count={len(spatial_lines)}, use_grounding={use_grounding}, active_agent_name='{active_agent.name}'")
 
         with hubscape_adk.context_session(remote_ctx):
             from google.adk.sessions.in_memory_session_service import InMemorySessionService
@@ -348,7 +338,7 @@ class HostAgent:
                 )
             else:
                 active_runner = Runner(
-                    agent=root_agent,
+                    agent=active_agent,
                     app_name='host-agent',
                     session_service=InMemorySessionService(),
                     artifact_service=InMemoryArtifactService(),
