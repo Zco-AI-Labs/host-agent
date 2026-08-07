@@ -165,7 +165,14 @@ class GEAPAgentWrapper:
                     custom_tools.append(t)
 
             grounding_keywords = []
-            config_json_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
+            core_dir = os.path.dirname(os.path.abspath(__file__))
+            app_dir = os.path.dirname(core_dir)
+            root_dir = os.path.dirname(app_dir)
+
+            config_json_path = os.path.join(root_dir, "config.json")
+            if not os.path.exists(config_json_path):
+                config_json_path = os.path.join(app_dir, "config.json")
+
             if os.path.exists(config_json_path):
                 try:
                     import json
