@@ -284,18 +284,11 @@ class HostAgent:
         use_grounding = bool(grounding_tools) and not is_subagent_query
 
         if use_grounding:
-            grounding_override = (
-                "\n\n[LIVE GROUNDING & NAVIGATION DIRECTIVE]\n"
-                "The user's starting location IS provided in [SPATIAL & LOCATION CONTEXT] under 'User Live Location'. "
-                "Do NOT ask the user for their starting address or location. "
-                "Use your grounding tools to calculate the driving/transit distance, travel time, and route "
-                "from the User Live Location to the destination/workspace location and provide the travel details directly."
-            )
             active_agent = AdkAgent(
                 model=get_model("gemini-2.5-flash"),
                 name=f"{agent_name}_grounding",
                 description="Grounding agent for web search and maps",
-                instruction=f"{base_instruction}{grounding_override}",
+                instruction=base_instruction,
                 tools=grounding_tools
             )
         else:
@@ -403,19 +396,8 @@ class HostAgent:
                     print(f"⚠️ Memory search non-critical: {mem_search_err}")
 
             turn_prompt = parsed_question
-            turn_prefix = ""
             if spatial_lines:
-                turn_prefix += "\n[SPATIAL & LOCATION CONTEXT]\n" + "\n".join(spatial_lines) + "\n"
-            if use_grounding:
-                turn_prefix += (
-                    "[LIVE GROUNDING & NAVIGATION DIRECTIVE]\n"
-                    "The user's starting location IS provided above in [SPATIAL & LOCATION CONTEXT] under 'User Live Location'. "
-                    "Do NOT ask the user for their starting address or location. "
-                    "Use your grounding tools to calculate the driving/transit distance, travel time, and route "
-                    "from the User Live Location to the destination/workspace location and provide the travel details directly.\n\n"
-                )
-            if turn_prefix:
-                turn_prompt = f"{turn_prefix}{parsed_question}"
+                turn_prompt = f"\n[SPATIAL & LOCATION CONTEXT]\n" + "\n".join(spatial_lines) + f"\n\n{parsed_question}"
 
             new_message = types.Content(
                 parts=[types.Part.from_text(text=turn_prompt)]
