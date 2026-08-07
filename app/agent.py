@@ -366,7 +366,7 @@ class HostAgent:
                     session_obj = Session.model_validate_json(adk_session_json)
                     
                     # Inject loaded session into InMemorySessionService cache
-                    session_service = self.runner.session_service
+                    session_service = active_runner.session_service
                     app_name = session_obj.app_name
                     uid = session_obj.user_id
                     sid = session_obj.id
@@ -375,6 +375,7 @@ class HostAgent:
                         session_service.sessions[app_name] = {}
                     if uid not in session_service.sessions[app_name]:
                         session_service.sessions[app_name][uid] = {}
+                    session_obj.instruction = active_agent.instruction
                     session_service.sessions[app_name][uid][sid] = session_obj
                     print(f"🔄 Resumed ADK GEAP Session: {session_id}")
                 else:
