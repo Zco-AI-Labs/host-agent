@@ -1,5 +1,5 @@
 {
-  "allow_web_search": true,
-  "allow_google_maps": true,
+  "allow_web_search": false,
+  "allow_google_maps": false,
   "mcp_servers": {}
 }

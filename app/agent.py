@@ -89,12 +89,10 @@ from app.scripts import (
 
 tools = load_local_tools(scripts_dir)
 
-allow_web_search = True
-allow_google_maps = True
+allow_web_search = False
+allow_google_maps = False
 
-config_json_path = os.path.join(runtime_dir, "config.json")
-if not os.path.exists(config_json_path):
-    config_json_path = os.path.join(os.path.dirname(runtime_dir), "config.json")
+config_json_path = os.path.join(os.path.dirname(runtime_dir), "config.json")
 if os.path.exists(config_json_path):
     try:
         import json
