@@ -273,6 +273,14 @@ class HostAgent:
                 import logging
                 logging.getLogger(__name__).warning(f"Failed to load google_search: {e}")
 
+        if allow_google_maps:
+            try:
+                from google.adk.tools import google_maps_grounding
+                grounding_tools.append(google_maps_grounding)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to load google_maps_grounding: {e}")
+
         use_grounding = bool(grounding_tools) and not is_subagent_query
 
         if use_grounding:
