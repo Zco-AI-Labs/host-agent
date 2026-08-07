@@ -156,7 +156,10 @@ async def consultAgent(agentId: str, query: str) -> str:
                 "user_timezone": raw_ctx.get("user_timezone"),
                 "current_local_datetime": raw_ctx.get("current_local_datetime"),
                 "day_of_week": raw_ctx.get("day_of_week"),
-                "current_iso_timestamp": raw_ctx.get("current_iso_timestamp")
+                "current_iso_timestamp": raw_ctx.get("current_iso_timestamp"),
+                "user_location": raw_ctx.get("user_location"),
+                "workspace_location": raw_ctx.get("workspace_location"),
+                "hub_location": raw_ctx.get("hub_location")
             }
 
         if not agentId or not str(agentId).strip():
