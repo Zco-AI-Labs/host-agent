@@ -286,9 +286,10 @@ class HostAgent:
         if use_grounding:
             grounding_override = (
                 "\n\n[LIVE GROUNDING & NAVIGATION DIRECTIVE]\n"
-                "You are explicitly authorized to use your Google Search tool to provide real-time directions, "
-                "driving/transit distances, travel times, and local routing relative to the user's live location "
-                "and workspace location. Do not refuse distance or mapping queries."
+                "The user's starting location IS provided in [SPATIAL & LOCATION CONTEXT] under 'User Live Location'. "
+                "Do NOT ask the user for their starting address or location. "
+                "Use your grounding tools to calculate the driving/transit distance, travel time, and route "
+                "from the User Live Location to the destination/workspace location and provide the travel details directly."
             )
             active_agent = AdkAgent(
                 model=get_model("gemini-2.5-flash"),
@@ -408,9 +409,10 @@ class HostAgent:
             if use_grounding:
                 turn_prefix += (
                     "[LIVE GROUNDING & NAVIGATION DIRECTIVE]\n"
-                    "You are explicitly authorized to use your Google Maps tool to provide real-time directions, "
-                    "driving/transit distances, travel times, and local routing relative to the user's live location "
-                    "and workspace location. Do not refuse distance or mapping queries.\n\n"
+                    "The user's starting location IS provided above in [SPATIAL & LOCATION CONTEXT] under 'User Live Location'. "
+                    "Do NOT ask the user for their starting address or location. "
+                    "Use your grounding tools to calculate the driving/transit distance, travel time, and route "
+                    "from the User Live Location to the destination/workspace location and provide the travel details directly.\n\n"
                 )
             if turn_prefix:
                 turn_prompt = f"{turn_prefix}{parsed_question}"
