@@ -224,7 +224,24 @@ async def consultAgent(agentId: str, query: str) -> str:
             
         # 3. Intercept directives and map to client actions
         try:
-            parsed = json.loads(subagent_output)
+            parsed = None
+            if subagent_output and isinstance(subagent_output, str):
+                trimmed_out = subagent_output.strip()
+                if trimmed_out.startswith("{") and trimmed_out.endswith("}"):
+                    try:
+                        parsed = json.loads(trimmed_out)
+                    except Exception:
+                        pass
+                if not parsed:
+                    # Attempt regex search for embedded JSON code block or object containing "directive"
+                    import re
+                    match = re.search(r'(\{[\s\S]*?"directive"\s*:\s*"execute_host_tool"[\s\S]*?\})', subagent_output)
+                    if match:
+                        try:
+                            parsed = json.loads(match.group(1))
+                        except Exception:
+                            pass
+
             if isinstance(parsed, dict):
                 directive = parsed.get("directive")
                 target_tool = parsed.get("target_tool")
@@ -256,6 +273,16 @@ async def consultAgent(agentId: str, query: str) -> str:
                             }
                         })
                         return message or f"Displaying agent widget: {parameters.get('widgetId')}"
+                        
+                    elif target_tool in ("closeAgentWidget", "close_agent_widget"):
+                        ctx.actions.append({
+                            "type": "CLOSE_AGENT_WIDGET",
+                            "payload": {
+                                "messageId": parameters.get("messageId"),
+                                "resultText": parameters.get("resultText") or "✅ Widget closed."
+                            }
+                        })
+                        return message or "Widget closed."
                         
                     elif target_tool == "suggestQueries":
                         ctx.actions.append({
