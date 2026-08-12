@@ -45,6 +45,19 @@ try:
 except Exception:
     pass
 
+# OpenTelemetry context detach safety patch
+try:
+    import opentelemetry.context as otel_context
+    _orig_detach = otel_context.detach
+    def _safe_detach(token):
+        try:
+            _orig_detach(token)
+        except Exception:
+            pass
+    otel_context.detach = _safe_detach
+except Exception:
+    pass
+
 import asyncio
 import logging
 import concurrent.futures
@@ -281,6 +294,44 @@ class AgentEngineA2aExecutor(A2aAgentExecutor):
                         artifact=Artifact(
                             artifact_id=str(uuid.uuid4()),
                             parts=[TextPart(text=json_text)]
+                        )
+                    )
+                    await event_queue.enqueue_event(new_artifact_event)
+                    return
+
+        if message and message.startswith("@"):
+            parts = message.split(" ", 1)
+            target_agent_id = parts[0][1:].strip()
+            sub_query = parts[1].strip() if len(parts) > 1 else ""
+            if target_agent_id and sub_query:
+                from app.scripts.consult_agent import consultAgent
+                from a2a.types import TaskStatusUpdateEvent, Message, Role, TextPart, TaskStatus, TaskState, TaskArtifactUpdateEvent, Artifact
+                with hubscape_adk.context_session(remote_ctx):
+                    sub_res = await consultAgent(agentId=target_agent_id, query=sub_query)
+                    
+                    new_event = TaskStatusUpdateEvent(
+                        task_id=context.task_id,
+                        status=TaskStatus(
+                            state=TaskState.working,
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            message=Message(
+                                message_id=str(uuid.uuid4()),
+                                role=Role.agent,
+                                parts=[TextPart(text=sub_res)]
+                            )
+                        ),
+                        context_id=context.context_id,
+                        final=False
+                    )
+                    await event_queue.enqueue_event(new_event)
+
+                    new_artifact_event = TaskArtifactUpdateEvent(
+                        task_id=context.task_id,
+                        last_chunk=True,
+                        context_id=context.context_id,
+                        artifact=Artifact(
+                            artifact_id=str(uuid.uuid4()),
+                            parts=[TextPart(text=sub_res)]
                         )
                     )
                     await event_queue.enqueue_event(new_artifact_event)
