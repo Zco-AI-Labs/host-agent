@@ -367,8 +367,16 @@ class AgentEngineA2aExecutor(A2aAgentExecutor):
         try:
             with hubscape_adk.context_session(remote_ctx):
                 await super().execute(context, interceptor)
+        except (ValueError, Exception) as otel_err:
+            if "created in a different Context" in str(otel_err) or "Token" in str(otel_err):
+                print(f"⚠️ OpenTelemetry cross-task context detach safely handled in runner: {otel_err}")
+            else:
+                raise
         finally:
-            request_runner_ctx.reset(token)
+            try:
+                request_runner_ctx.reset(token)
+            except (ValueError, Exception):
+                pass
 
         # 2. Persist ADK Session back to Firestore
         try:

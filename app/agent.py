@@ -216,6 +216,20 @@ class HostAgent:
                         "text": f"Switching context to hub: {target_hub}",
                         "actions": remote_ctx.actions
                     })
+
+        # --- FAST-PATH TARGETED AGENT ROUTER (@agent_id) ---
+        if parsed_question.startswith("@"):
+            parts = parsed_question.split(" ", 1)
+            target_agent_id = parts[0][1:].strip()
+            sub_query = parts[1].strip() if len(parts) > 1 else ""
+            if target_agent_id and sub_query:
+                from app.scripts.consult_agent import consultAgent
+                with hubscape_adk.context_session(remote_ctx):
+                    sub_res = await consultAgent(agentId=target_agent_id, query=sub_query)
+                    return json.dumps({
+                        "text": sub_res,
+                        "actions": getattr(remote_ctx, "actions", [])
+                    })
         
         # 1. Resolve dynamic system instructions from context and merge with base skill instructions
         dynamic_ctx_prompt = (context or {}).get("system_instruction") or ""
