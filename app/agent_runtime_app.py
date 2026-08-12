@@ -55,6 +55,15 @@ try:
         except Exception:
             pass
     otel_context.detach = _safe_detach
+    
+    from opentelemetry.context.contextvars_context import ContextVarsRuntimeContext
+    _orig_cv_detach = ContextVarsRuntimeContext.detach
+    def _safe_cv_detach(self, token):
+        try:
+            _orig_cv_detach(self, token)
+        except Exception:
+            pass
+    ContextVarsRuntimeContext.detach = _safe_cv_detach
 except Exception:
     pass
 
@@ -345,10 +354,10 @@ class AgentEngineA2aExecutor(A2aAgentExecutor):
         
         base_instruction = base_runner.agent.instruction or ""
         
-        # Check for system_instruction from context/metadata
+        # Merge system_instruction with base Orchestrator skill instruction to preserve delegation rules
         system_instruction = metadata.get("system_instruction")
         if system_instruction:
-            cloned_agent.instruction = system_instruction
+            cloned_agent.instruction = f"{base_instruction}\n\n## ACTIVE WORKSPACE CUSTOM PERSONA & IDENTITY\n{system_instruction}"
             
         # Instantiate a request-scoped runner to avoid polluting the process-wide singleton
         scoped_runner = Runner(
