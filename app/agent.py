@@ -363,15 +363,20 @@ class HostAgent:
                     # Inject loaded session into InMemorySessionService cache
                     session_service = active_runner.session_service
                     app_name = session_obj.app_name
-                    uid = session_obj.user_id
+                    old_uid = session_obj.user_id
                     sid = session_obj.id
                     
+                    # Update session user_id to current verified user if promoted
+                    if user_id and user_id != "anonymous_user" and old_uid != user_id:
+                        session_obj.user_id = user_id
+                        print(f"🔑 Promoted ADK GEAP Session {session_id} from {old_uid} to {user_id}")
+
                     if app_name not in session_service.sessions:
                         session_service.sessions[app_name] = {}
-                    if uid not in session_service.sessions[app_name]:
-                        session_service.sessions[app_name][uid] = {}
+                    if user_id not in session_service.sessions[app_name]:
+                        session_service.sessions[app_name][user_id] = {}
                     session_obj.instruction = active_agent.instruction
-                    session_service.sessions[app_name][uid][sid] = session_obj
+                    session_service.sessions[app_name][user_id][sid] = session_obj
                     print(f"🔄 Resumed ADK GEAP Session: {session_id}")
                 else:
                     print(f"🌱 Starting New ADK GEAP Session: {session_id}")
