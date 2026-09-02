@@ -592,7 +592,7 @@ class AgentEngineApp(A2aAgent):
         if privileges_data:
             extensions.append(
                 AgentExtension(
-                    uri="https://hubscape.io/extensions/privileges",
+                    uri="https://hubscape-geap.web.app/extensions/privileges",
                     description="Workspace role-based privileges matrix",
                     params=privileges_data
                 )
@@ -960,7 +960,7 @@ class AgentEngineApp(A2aAgent):
         privileges_data = _load_privileges_without_tools()
         if privileges_data:
             extensions.append({
-                "uri": "https://hubscape.io/extensions/privileges",
+                "uri": "https://hubscape-geap.web.app/extensions/privileges",
                 "description": "Workspace role-based privileges matrix",
                 "params": privileges_data
             })
