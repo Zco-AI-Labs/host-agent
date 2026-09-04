@@ -315,6 +315,24 @@ async def consultAgent(agentId: str, query: str) -> str:
                         })
                         return message or "Call ended."
                         
+                    elif target_tool in ("triggerOtp", "trigger_otp"):
+                        phone = parameters.get("phone_number") or parameters.get("mobile_number")
+                        metadata = parameters.get("metadata") or {}
+                        purpose = parameters.get("purpose") or metadata.get("purpose") or "general"
+                        ctx.actions.append({
+                            "type": "TRIGGER_OTP",
+                            "payload": {
+                                "phone_number": phone,
+                                "purpose": purpose,
+                                "agent_id": parameters.get("agent_id") or agentId,
+                                "metadata": metadata
+                            }
+                        })
+                        return message or (
+                            f"Initiating phone verification for {phone}." if phone
+                            else "Initiating phone verification."
+                        )
+
                 elif directive == "respond_to_user":
                     return message
         except Exception:
