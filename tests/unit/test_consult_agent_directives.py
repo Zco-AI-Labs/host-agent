@@ -125,6 +125,46 @@ def test_consult_agent_directive_open_agent_widget():
     assert action["type"] == "OPEN_AGENT_WIDGET"
     assert action["payload"]["id"] == "calendar-agent"
     assert action["payload"]["widgetId"] == "calendar_widget"
+    assert action["payload"]["target"] == "inline"
+
+
+def test_consult_agent_directive_open_agent_widget_app_mode():
+    """Verifies that consult_agent preserves target='app_mode', appConfig, and spatial metadata."""
+    ctx = RemoteContext(user_id="user_123", agent_id="host-agent", org_id="org_1", hub_id="hub_1")
+    
+    app_config = {
+        "appId": "tactical_app",
+        "canvasWidget": {"widgetId": "canvas_gauges"},
+        "title": "Tactical Console",
+        "icon": "Command"
+    }
+    
+    directive_data = {
+        "directive": "execute_host_tool",
+        "target_tool": "openAgentWidget",
+        "parameters": {
+            "target": "app_mode",
+            "widgetId": "tactical_app",
+            "appConfig": app_config,
+            "title": "Tactical Console",
+            "icon": "Command",
+            "actions": [{"id": "save", "label": "Save"}]
+        }
+    }
+
+    result = parse_subagent_directive(directive_data, ctx, "tactical-operations-agent")
+
+    assert result == "Displaying agent widget: tactical_app"
+    assert len(ctx.actions) == 1
+    action = ctx.actions[0]
+    assert action["type"] == "OPEN_AGENT_WIDGET"
+    assert action["payload"]["id"] == "tactical-operations-agent"
+    assert action["payload"]["target"] == "app_mode"
+    assert action["payload"]["appConfig"] == app_config
+    assert action["payload"]["title"] == "Tactical Console"
+    assert action["payload"]["icon"] == "Command"
+    assert action["payload"]["actions"] == [{"id": "save", "label": "Save"}]
+
 
 
 def test_consult_agent_directive_suggest_queries():

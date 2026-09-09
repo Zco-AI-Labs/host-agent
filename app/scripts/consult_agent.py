@@ -93,7 +93,12 @@ def parse_subagent_directive(
                         "widgetConfig": parameters.get("widgetConfig"),
                         "data": parameters.get("data") or {},
                         "styling": parameters.get("styling") or {},
-                        "userPreferences": parameters.get("userPreferences") or {}
+                        "userPreferences": parameters.get("userPreferences") or {},
+                        "target": parameters.get("target") or "inline",
+                        "appConfig": parameters.get("appConfig"),
+                        "title": parameters.get("title"),
+                        "icon": parameters.get("icon"),
+                        "actions": parameters.get("actions")
                     }
                 })
             return message or f"Displaying agent widget: {parameters.get('widgetId')}"
