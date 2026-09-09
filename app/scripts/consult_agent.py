@@ -4,6 +4,7 @@ import httpx
 import google.auth
 import google.auth.transport.requests
 from app.core import hubscape_adk
+from app.core.hubscape_adk import RemoteContext
 from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
 from google.adk.events.event import Event as AdkEvent
 from google.genai import types as genai_types
@@ -27,6 +28,145 @@ def extract_dynamic_entity(persona_text: str, hub_name: str) -> str:
             return " ".join(entity_words[:3])
 
     return ""
+
+
+def parse_subagent_directive(
+    directive_data: dict | str,
+    ctx: RemoteContext | None = None,
+    agent_id: str = "",
+) -> str | None:
+    """
+    Parses a subagent directive dictionary (or JSON string) and dispatches
+    any host agent actions (e.g. OPEN_ADMIN_WIDGET, TRIGGER_OTP, etc.) onto ctx.actions.
+    
+    Returns the message or descriptive string if an intercepted directive was handled,
+    or None if the payload does not represent an intercepted host directive.
+    """
+    parsed: dict | None = None
+    if isinstance(directive_data, str):
+        trimmed = directive_data.strip()
+        if trimmed.startswith("{") and trimmed.endswith("}"):
+            try:
+                parsed = json.loads(trimmed)
+            except Exception:
+                pass
+        if not parsed:
+            # Attempt regex search for embedded JSON code block or object containing "directive"
+            import re
+            match = re.search(r'(\{[\s\S]*?"directive"\s*:\s*"execute_host_tool"[\s\S]*?\})', directive_data)
+            if match:
+                try:
+                    parsed = json.loads(match.group(1))
+                except Exception:
+                    pass
+    elif isinstance(directive_data, dict):
+        parsed = directive_data
+
+    if not isinstance(parsed, dict):
+        return None
+
+    directive = parsed.get("directive")
+    target_tool = parsed.get("target_tool")
+    parameters = parsed.get("parameters") or {}
+    message = parsed.get("message") or ""
+
+    if directive == "execute_host_tool":
+        if target_tool == "openAdminWidget":
+            wtype = parameters.get("widgetType") or parameters.get("widget_type") or parameters.get("id")
+            if ctx and hasattr(ctx, "actions"):
+                ctx.actions.append({
+                    "type": "OPEN_ADMIN_WIDGET",
+                    "payload": {
+                        "id": wtype,
+                        "widgetType": wtype
+                    }
+                })
+            return message or f"Opening the {wtype} widget."
+
+        elif target_tool == "openAgentWidget":
+            if ctx and hasattr(ctx, "actions"):
+                ctx.actions.append({
+                    "type": "OPEN_AGENT_WIDGET",
+                    "payload": {
+                        "id": agent_id,
+                        "widgetId": parameters.get("widgetId"),
+                        "widgetConfig": parameters.get("widgetConfig"),
+                        "data": parameters.get("data") or {},
+                        "styling": parameters.get("styling") or {},
+                        "userPreferences": parameters.get("userPreferences") or {}
+                    }
+                })
+            return message or f"Displaying agent widget: {parameters.get('widgetId')}"
+
+        elif target_tool in ("closeAgentWidget", "close_agent_widget"):
+            if ctx and hasattr(ctx, "actions"):
+                ctx.actions.append({
+                    "type": "CLOSE_AGENT_WIDGET",
+                    "payload": {
+                        "messageId": parameters.get("messageId"),
+                        "resultText": parameters.get("resultText") or "✅ Widget closed."
+                    }
+                })
+            return message or "Widget closed."
+
+        elif target_tool == "suggestQueries":
+            if ctx and hasattr(ctx, "actions"):
+                ctx.actions.append({
+                    "type": "SET_SUGGESTIONS",
+                    "queries": parameters.get("queries") or []
+                })
+            return message
+
+        elif target_tool == "switchHub":
+            if ctx and hasattr(ctx, "actions"):
+                ctx.actions.append({
+                    "type": "SWITCH_HUB",
+                    "payload": {
+                        "hubId": parameters.get("hubId")
+                    }
+                })
+            return message or "Switching hub workspace."
+
+        elif target_tool == "openExternalLink":
+            if ctx and hasattr(ctx, "actions"):
+                ctx.actions.append({
+                    "type": "OPEN_EXTERNAL_LINK",
+                    "payload": {
+                        "url": parameters.get("url")
+                    }
+                })
+            return message or f"Opening external link: {parameters.get('url')}"
+
+        elif target_tool == "endCall":
+            if ctx and hasattr(ctx, "actions"):
+                ctx.actions.append({
+                    "type": "END_CALL"
+                })
+            return message or "Call ended."
+
+        elif target_tool in ("triggerOtp", "trigger_otp"):
+            phone = parameters.get("phone_number") or parameters.get("mobile_number")
+            metadata = parameters.get("metadata") or {}
+            purpose = parameters.get("purpose") or metadata.get("purpose") or "general"
+            if ctx and hasattr(ctx, "actions"):
+                ctx.actions.append({
+                    "type": "TRIGGER_OTP",
+                    "payload": {
+                        "phone_number": phone,
+                        "purpose": purpose,
+                        "agent_id": parameters.get("agent_id") or agent_id,
+                        "metadata": metadata
+                    }
+                })
+            return message or (
+                f"Initiating phone verification for {phone}." if phone
+                else "Initiating phone verification."
+            )
+
+    elif directive == "respond_to_user":
+        return message
+
+    return None
 
 
 @hubscape_adk.require_tool_privilege
@@ -224,99 +364,9 @@ async def consultAgent(agentId: str, query: str) -> str:
             
         # 3. Intercept directives and map to client actions
         try:
-            parsed = None
-            if subagent_output and isinstance(subagent_output, str):
-                trimmed_out = subagent_output.strip()
-                if trimmed_out.startswith("{") and trimmed_out.endswith("}"):
-                    try:
-                        parsed = json.loads(trimmed_out)
-                    except Exception:
-                        pass
-                if not parsed:
-                    # Attempt regex search for embedded JSON code block or object containing "directive"
-                    import re
-                    match = re.search(r'(\{[\s\S]*?"directive"\s*:\s*"execute_host_tool"[\s\S]*?\})', subagent_output)
-                    if match:
-                        try:
-                            parsed = json.loads(match.group(1))
-                        except Exception:
-                            pass
-
-            if isinstance(parsed, dict):
-                directive = parsed.get("directive")
-                target_tool = parsed.get("target_tool")
-                parameters = parsed.get("parameters") or {}
-                message = parsed.get("message") or ""
-                
-                if directive == "execute_host_tool":
-                    if target_tool == "openAdminWidget":
-                        wtype = parameters.get("widgetType") or parameters.get("widget_type") or parameters.get("id")
-                        ctx.actions.append({
-                            "type": "OPEN_ADMIN_WIDGET",
-                            "payload": {
-                                "id": wtype,
-                                "widgetType": wtype
-                            }
-                        })
-                        return message or f"Opening the {wtype} widget."
-                        
-                    elif target_tool == "openAgentWidget":
-                        ctx.actions.append({
-                            "type": "OPEN_AGENT_WIDGET",
-                            "payload": {
-                                "id": agentId,
-                                "widgetId": parameters.get("widgetId"),
-                                "widgetConfig": parameters.get("widgetConfig"),
-                                "data": parameters.get("data") or {},
-                                "styling": parameters.get("styling") or {},
-                                "userPreferences": parameters.get("userPreferences") or {}
-                            }
-                        })
-                        return message or f"Displaying agent widget: {parameters.get('widgetId')}"
-                        
-                    elif target_tool in ("closeAgentWidget", "close_agent_widget"):
-                        ctx.actions.append({
-                            "type": "CLOSE_AGENT_WIDGET",
-                            "payload": {
-                                "messageId": parameters.get("messageId"),
-                                "resultText": parameters.get("resultText") or "✅ Widget closed."
-                            }
-                        })
-                        return message or "Widget closed."
-                        
-                    elif target_tool == "suggestQueries":
-                        ctx.actions.append({
-                            "type": "SET_SUGGESTIONS",
-                            "queries": parameters.get("queries") or []
-                        })
-                        return message
-                        
-                    elif target_tool == "switchHub":
-                        ctx.actions.append({
-                            "type": "SWITCH_HUB",
-                            "payload": {
-                                "hubId": parameters.get("hubId")
-                            }
-                        })
-                        return message or "Switching hub workspace."
-                        
-                    elif target_tool == "openExternalLink":
-                        ctx.actions.append({
-                            "type": "OPEN_EXTERNAL_LINK",
-                            "payload": {
-                                "url": parameters.get("url")
-                            }
-                        })
-                        return message or f"Opening external link: {parameters.get('url')}"
-                        
-                    elif target_tool == "endCall":
-                        ctx.actions.append({
-                            "type": "END_CALL"
-                        })
-                        return message or "Call ended."
-                        
-                elif directive == "respond_to_user":
-                    return message
+            intercepted_result = parse_subagent_directive(subagent_output, ctx, agentId)
+            if intercepted_result is not None:
+                return intercepted_result
         except Exception:
             # If not a JSON string, propagate the raw output verbatim
             pass
