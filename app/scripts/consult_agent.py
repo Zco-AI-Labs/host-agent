@@ -304,7 +304,8 @@ async def consultAgent(agentId: str, query: str) -> str:
                 "current_iso_timestamp": raw_ctx.get("current_iso_timestamp"),
                 "user_location": raw_ctx.get("user_location"),
                 "workspace_location": raw_ctx.get("workspace_location"),
-                "hub_location": raw_ctx.get("hub_location")
+                "hub_location": raw_ctx.get("hub_location"),
+                "session_metadata": raw_ctx.get("session_metadata")
             }
 
         if not agentId or not str(agentId).strip():
@@ -325,7 +326,7 @@ async def consultAgent(agentId: str, query: str) -> str:
             id=session_id,
             app_name="consult_agent",
             user_id=ctx.auth.get_user_id() or "anonymous_user",
-            state={},
+            state={"session_metadata": raw_ctx.get("session_metadata")} if raw_ctx.get("session_metadata") else {},
             events=[adk_event]
         )
         from google.adk.sessions.in_memory_session_service import InMemorySessionService

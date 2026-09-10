@@ -143,6 +143,15 @@ class GEAPAgentWrapper:
             if spatial_lines:
                 spatial_context = "\n[SPATIAL & LOCATION CONTEXT]\n" + "\n".join(spatial_lines) + "\n"
 
+            session_meta = (context or {}).get("session_metadata")
+            session_meta_str = ""
+            if session_meta:
+                if isinstance(session_meta, dict):
+                    meta_lines = [f"- {k}: {v}" for k, v in session_meta.items()]
+                else:
+                    meta_lines = [f"- {session_meta}"]
+                session_meta_str = "\n[ACTIVE SESSION METADATA]\n" + "\n".join(meta_lines) + "\n"
+
             session_context = (
                 f"[ACTIVE WORKSPACE CONTEXT]\n"
                 f"- Interaction Mode: {normalized_mode}\n"
@@ -150,6 +159,7 @@ class GEAPAgentWrapper:
                 f"- Workspace ID: {workspace_id or 'none'}\n"
                 f"- Organization ID: {org_id or 'none'}\n"
                 f"{spatial_context}"
+                f"{session_meta_str}"
             )
             base_instruction = self.agent.instruction or ""
             cloned_agent.instruction = f"{session_context}\n{base_instruction}"

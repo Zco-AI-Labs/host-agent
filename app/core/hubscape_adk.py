@@ -39,6 +39,11 @@ class RemoteContext:
             self.allow_generative_ui = platform_config.get("allowGenerativeUi", True)
 
     @property
+    def session_metadata(self) -> dict:
+        meta = self.raw_context.get("session_metadata") or self.raw_context.get("sessionMetadata")
+        return meta if isinstance(meta, dict) else ({"value": meta} if meta else {})
+
+    @property
     def _db_client(self):
         if self._db is None:
             # Try to get OAuth2 token from Metadata Server
